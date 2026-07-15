@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiva-ai-bot"
+version = "1.0.0"
+description = "Telegram bot for beauty industry professionals"
+authors = [{name = "Aiva AI Team", email = "team@aiva.ai"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram==3.3.0",
+    "fastapi==0.109.0",
+    "uvicorn[standard]==0.27.0",
+    "sqlalchemy==2.0.0",
+    "asyncpg==0.29.0",
+    "alembic==1.13.0",
+    "redis==5.0.0",
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "structlog==24.1.0",
+    "python-json-logger==2.0.7",
+    "cryptography==41.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.0",
+    "pytest-asyncio==0.21.0",
+    "pytest-cov==4.1.0",
+    "ruff==0.1.6",
+    "mypy==1.8.0",
+    "black==23.12.0",
+    "pre-commit==3.5.0",
+    "factory-boy==3.3.0",
+    "httpx==0.25.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+]
+extend-ignore = []
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+skip-string-normalization = true

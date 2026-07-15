@@ -1,0 +1,80 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /path/to/aiva-ai-bot
+          
+          # Pull latest changes
+          git pull origin main
+          
+          # Copy environment file if exists
+          if [ -f .env ]; then
+            echo "Environment file already exists"
+          else
+            echo "Creating environment file from secrets"
+            echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+            echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> .env
+            echo "ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}" >> .env
+            echo "WEBHOOK_URL=${{ secrets.WEBHOOK_URL }}" >> .env
+            echo "DOMAIN=${{ secrets.DOMAIN }}" >> .env
+            echo "EMAIL=${{ secrets.EMAIL }}" >> .env
+          fi
+          
+          # Build and deploy
+          docker-compose -f docker/docker-compose.yml down
+          docker-compose -f docker/docker-compose.yml build
+          docker-compose -f docker/docker-compose.yml up -d
+          
+          # Wait for services to start
+          sleep 30
+          
+          # Check if services are running
+          if docker-compose -f docker/docker-compose.yml ps | grep -q "Up"; then
+            echo "Deployment successful!"
+          else
+            echo "Some services failed to start"
+            docker-compose -f docker/docker-compose.yml logs
+            exit 1
+          fi
+    
+    - name: Notify on success
+      if: success()
+      uses: appleboy/telegram-action@v0.1.1
+      with:
+        to: ${{ secrets.TELEGRAM_CHAT_ID }}
+        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        message: |
+          ✅ Aiva AI Bot deployed successfully!
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Time: ${{ github.event.repository.updated_at }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: appleboy/telegram-action@v0.1.1
+      with:
+        to: ${{ secrets.TELEGRAM_CHAT_ID }}
+        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        message: |
+          ❌ Aiva AI Bot deployment failed!
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Action: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
