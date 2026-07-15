@@ -263,4 +263,4 @@ For support, please open an issue in the repository or contact the maintainers.
 
 ---
 
-Made with ❤️ for beauty industry professionals
+Made with ❤️ for beauty industry professionals# aiva
