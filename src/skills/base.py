@@ -1,5 +1,8 @@
 """
-Base classes for the skill system
+Base classes for the skill system.
+
+Задел на Фазу 2. В MVP handlers работают напрямую.
+SkillManager подключим при retention/marketing/voice.
 """
 
 from abc import ABC, abstractmethod

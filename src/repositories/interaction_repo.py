@@ -1,36 +1,37 @@
+"""Repository for interaction event sourcing."""
+
 from datetime import datetime, timedelta
-from typing import List
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Interaction
+from ..models.interaction import Interaction
 
 
-class InteractionRepository:
-    """Repository for handling interaction-related database operations"""
+class InteractionRepo:
+    """Repository class for interaction operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create_interaction(self, interaction: Interaction) -> Interaction:
-        """Create a new interaction record"""
+    async def create(self, **fields: object) -> Interaction:
+        """Create a new interaction record."""
+        interaction = Interaction(**fields)
         self.session.add(interaction)
         await self.session.commit()
         await self.session.refresh(interaction)
         return interaction
 
-    async def get_interactions_by_master(
+    async def list_by_master(
         self,
-        master_id: int,
-        start_date: datetime = None,
-        end_date: datetime = None,
-        event_type: str = None,
+        master_id: str,
+        *,
+        event_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
-    ) -> List[Interaction]:
-        """Get interactions for a specific master within date range"""
-        query = select(Interaction).filter(Interaction.master_id == master_id)
-
+    ) -> list[Interaction]:
+        query = select(Interaction).where(Interaction.master_id == master_id)
         conditions = []
         if start_date:
             conditions.append(Interaction.created_at >= start_date)
@@ -38,90 +39,15 @@ class InteractionRepository:
             conditions.append(Interaction.created_at <= end_date)
         if event_type:
             conditions.append(Interaction.event_type == event_type)
-
         if conditions:
-            query = query.filter(and_(*conditions))
-
+            query = query.where(and_(*conditions))
         query = query.order_by(Interaction.created_at.desc()).limit(limit)
-
         result = await self.session.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
-    async def get_interactions_by_client_hash(
-        self, client_hash: str, start_date: datetime = None, end_date: datetime = None
-    ) -> List[Interaction]:
-        """Get interactions for a specific client hash"""
-        query = select(Interaction).filter(Interaction.client_hash == client_hash)
-
-        conditions = []
-        if start_date:
-            conditions.append(Interaction.created_at >= start_date)
-        if end_date:
-            conditions.append(Interaction.created_at <= end_date)
-
-        if conditions:
-            query = query.filter(and_(*conditions))
-
-        query = query.order_by(Interaction.created_at.desc())
-
-        result = await self.session.execute(query)
-        return result.scalars().all()
-
-    async def count_interactions_by_type(
-        self,
-        master_id: int,
-        event_type: str,
-        start_date: datetime = None,
-        end_date: datetime = None,
-    ) -> int:
-        """Count interactions of specific type for a master"""
-        query = select(Interaction).filter(
-            and_(
-                Interaction.master_id == master_id, Interaction.event_type == event_type
-            )
-        )
-
-        conditions = []
-        if start_date:
-            conditions.append(Interaction.created_at >= start_date)
-        if end_date:
-            conditions.append(Interaction.created_at <= end_date)
-
-        if conditions:
-            query = query.filter(and_(*conditions))
-
-        result = await self.session.execute(query)
-        return len(result.scalars().all())
-
-    async def get_recent_interactions(
-        self, master_id: int, hours: int = 24
-    ) -> List[Interaction]:
-        """Get recent interactions for a master"""
-        end_time = datetime.utcnow()
+    async def get_recent(self, master_id: str, hours: int = 24) -> list[Interaction]:
+        end_time = datetime.now()
         start_time = end_time - timedelta(hours=hours)
-
-        query = (
-            select(Interaction)
-            .filter(
-                and_(
-                    Interaction.master_id == master_id,
-                    Interaction.created_at >= start_time,
-                    Interaction.created_at <= end_time,
-                )
-            )
-            .order_by(Interaction.created_at.desc())
+        return await self.list_by_master(
+            master_id, start_date=start_time, end_date=end_time
         )
-
-        result = await self.session.execute(query)
-        return result.scalars().all()
-
-
-class InteractionRepo:
-    """Repository class for interaction operations."""
-
-    async def create(self, **fields) -> None:
-        """Create a new interaction record.
-
-        Validates that client_hash is provided and that metadata fields don't contain PII.
-        """
-        raise NotImplementedError("phase 2")

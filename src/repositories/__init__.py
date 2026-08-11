@@ -1,8 +1,6 @@
 """Repositories package for Aiva AI Bot."""
 
-from .booking_repo import BookingRepository
+from .booking_repo import BookingRepo
 from .interaction_repo import InteractionRepo
 
-BookingRepo = BookingRepository
-
-__all__ = ["BookingRepository", "BookingRepo", "InteractionRepo"]
+__all__ = ["BookingRepo", "InteractionRepo"]

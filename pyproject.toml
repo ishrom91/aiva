@@ -76,7 +76,6 @@ ignore_errors = true
 
 [tool.coverage.run]
 omit = [
-    "src/repositories/*",
     "src/skills/*",
     "src/schemas/*",
 ]

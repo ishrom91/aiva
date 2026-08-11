@@ -5,7 +5,8 @@ from datetime import datetime
 
 from ..config import settings
 from ..database import get_session
-from ..models.interaction import Interaction, InteractionDirection
+from ..models.interaction import InteractionDirection
+from ..repositories.interaction_repo import InteractionRepo
 from ..utils.anonymization import extract_time_metadata, generate_client_hash
 
 
@@ -30,15 +31,14 @@ async def _write_event(
     client_hash = generate_client_hash(telegram_id, settings.CLIENT_HASH_SALT)
 
     async with get_session() as session:
-        interaction = Interaction(
+        repo = InteractionRepo(session)
+        await repo.create(
             event_type=event_type,
             master_id=master_id,
             client_hash=client_hash,
             direction=InteractionDirection.INBOUND,
             event_metadata=payload,
         )
-        session.add(interaction)
-        await session.commit()
 
 
 def log_event(

@@ -3,13 +3,13 @@
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..billing.tariffs import get_tariff_config
-from ..models.booking import Booking, BookingStatus
 from ..models.master import Master
 from ..models.subscription import Subscription, SubscriptionStatus
+from ..repositories.booking_repo import BookingRepo
 
 
 class SubscriptionService:
@@ -43,15 +43,7 @@ class SubscriptionService:
         return subscription
 
     async def current_month_usage(self, session: AsyncSession, master_id: str) -> int:
-        now = datetime.now()
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        stmt = select(func.count(Booking.id)).where(
-            Booking.master_id == master_id,
-            Booking.status == BookingStatus.CONFIRMED,
-            Booking.datetime >= month_start,
-        )
-        result = await session.execute(stmt)
-        return int(result.scalar_one())
+        return await BookingRepo(session).count_current_month(master_id)
 
     async def can_book_more(self, session: AsyncSession, master_id: str) -> bool:
         subscription = await self.get_or_create(session, master_id)
@@ -131,14 +123,14 @@ class SubscriptionService:
         if not subscription or subscription.status != SubscriptionStatus.ACTIVE:
             return {"can_book": False, "reason": "no_active_subscription", "limits": {}}
 
-        booking_stmt = select(Booking).where(
-            Booking.master_id == master_id,
-            Booking.datetime >= subscription.current_period_start,
-            Booking.datetime <= subscription.current_period_end,
-            Booking.status != BookingStatus.CANCELLED,
+        booking_repo = BookingRepo(session)
+        period_bookings = await booking_repo.get_bookings_in_range(
+            master_id,
+            subscription.current_period_start,
+            subscription.current_period_end,
+            exclude_cancelled=True,
         )
-        booking_result = await session.execute(booking_stmt)
-        current_bookings = len(booking_result.scalars().all())
+        current_bookings = len(period_bookings)
 
         can_book = True
         reason = ""

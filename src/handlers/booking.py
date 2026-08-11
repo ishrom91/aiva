@@ -56,8 +56,14 @@ async def command_book_handler(message: Message, state: FSMContext) -> None:
             return
 
         await persist_master_context(state, master)
+        contact = getattr(message, "contact", None)
+        phone = contact.phone_number if contact else None
         await get_or_create_client(
-            session, user.id, master.id, user.full_name or user.first_name
+            session,
+            user.id,
+            master.id,
+            user.full_name or user.first_name,
+            phone=phone,
         )
 
         result = await session.execute(
@@ -234,8 +240,13 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext) -> None:
 
     try:
         async with get_session() as session:
+            client_phone = data.get("client_phone")
             client, _ = await get_or_create_client(
-                session, user.id, master_id, user.full_name or user.first_name
+                session,
+                user.id,
+                master_id,
+                user.full_name or user.first_name,
+                phone=client_phone,
             )
             booking_service = BookingService(session)
             booking = await booking_service.create_booking(

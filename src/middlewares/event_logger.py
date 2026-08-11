@@ -11,7 +11,7 @@ from aiogram.types import Update
 
 from ..config import settings
 from ..database import get_session
-from ..models.interaction import Interaction, InteractionDirection
+from ..models.interaction import InteractionDirection
 from ..services.master_service import get_master_by_telegram_id
 from ..utils.anonymization import extract_time_metadata, generate_client_hash
 
@@ -63,7 +63,10 @@ class EventLoggerMiddleware(BaseMiddleware):
                 metadata["text_content"] = event.message.text
 
             async with get_session() as session:
-                interaction = Interaction(
+                from ..repositories.interaction_repo import InteractionRepo
+
+                repo = InteractionRepo(session)
+                await repo.create(
                     event_type=event_type,
                     master_id=master_id,
                     client_hash=client_hash,
@@ -71,8 +74,6 @@ class EventLoggerMiddleware(BaseMiddleware):
                     skill_name=data.get("current_skill"),
                     event_metadata=metadata,
                 )
-                session.add(interaction)
-                await session.commit()
 
         except Exception as exc:
             self.logger.exception("Failed to log interaction", error=str(exc))

@@ -10,6 +10,7 @@ from ..exceptions import BookingConflictError, OwnershipError, SubscriptionLimit
 from ..models.booking import Booking, BookingStatus
 from ..models.master import Master
 from ..models.service import Service
+from ..repositories.booking_repo import BookingRepo
 from ..services.subscription_service import SubscriptionService
 
 
@@ -18,6 +19,7 @@ class BookingService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+        self.booking_repo = BookingRepo(session)
         self.subscription_service = SubscriptionService()
 
     async def create_booking(
@@ -44,13 +46,9 @@ class BookingService:
         duration = service.duration_minutes
         slot_end = booking_datetime + timedelta(minutes=duration)
 
-        conflict_stmt = select(Booking).where(
-            Booking.master_id == master_id,
-            Booking.status == BookingStatus.CONFIRMED,
-            Booking.datetime >= booking_datetime - timedelta(hours=12),
-            Booking.datetime <= booking_datetime + timedelta(hours=12),
+        existing_bookings = await self.booking_repo.list_confirmed_near(
+            master_id, booking_datetime
         )
-        existing_bookings = (await self.session.execute(conflict_stmt)).scalars().all()
         for existing in existing_bookings:
             existing_service = await self.session.get(Service, existing.service_id)
             existing_duration = (
@@ -75,17 +73,13 @@ class BookingService:
                 upsell_text=upsell,
             )
 
-        booking = Booking(
+        return await self.booking_repo.create(
             client_id=client_id,
             service_id=service_id,
             master_id=master_id,
-            datetime=booking_datetime,
+            booking_datetime=booking_datetime,
             status=BookingStatus.CONFIRMED,
         )
-        self.session.add(booking)
-        await self.session.commit()
-        await self.session.refresh(booking)
-        return booking
 
     async def get_available_slots(
         self,
@@ -111,17 +105,11 @@ class BookingService:
             hour=end_hour
         )
 
-        bookings_stmt = (
-            select(Booking, Service.duration_minutes)
-            .join(Service, Booking.service_id == Service.id)
-            .where(
-                Booking.master_id == master_id,
-                Booking.status == BookingStatus.CONFIRMED,
-                Booking.datetime >= day_start,
-                Booking.datetime < day_end + timedelta(days=1),
-            )
+        rows = await self.booking_repo.list_confirmed_with_duration_for_day(
+            master_id,
+            day_start,
+            day_end + timedelta(days=1),
         )
-        rows = (await self.session.execute(bookings_stmt)).all()
 
         booked_ranges: list[tuple[datetime, datetime]] = []
         for booking, duration_minutes in rows:
@@ -157,25 +145,21 @@ class BookingService:
         return slots
 
     async def cancel_booking(self, booking_id: str, master_id: str) -> Booking:
-        booking = await self.session.get(Booking, booking_id)
+        booking = await self.booking_repo.get_by_id(booking_id)
         if not booking:
             raise OwnershipError("Booking not found")
         if booking.master_id != master_id:
             raise OwnershipError("Booking does not belong to this master")
 
         booking.status = BookingStatus.CANCELLED
-        await self.session.commit()
-        await self.session.refresh(booking)
-        return booking
+        return await self.booking_repo.save(booking)
 
     async def mark_no_show(self, booking_id: str, master_id: str) -> Booking:
-        booking = await self.session.get(Booking, booking_id)
+        booking = await self.booking_repo.get_by_id(booking_id)
         if not booking:
             raise OwnershipError("Booking not found")
         if booking.master_id != master_id:
             raise OwnershipError("Booking does not belong to this master")
 
         booking.status = BookingStatus.NO_SHOW
-        await self.session.commit()
-        await self.session.refresh(booking)
-        return booking
+        return await self.booking_repo.save(booking)

@@ -5,8 +5,16 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models.client import Client
 from ..models.master import Master
+from ..utils.encryption import get_encryption_manager
+
+
+def _encrypt_field(value: str | None) -> str | None:
+    if not value:
+        return None
+    return get_encryption_manager(settings.ENCRYPTION_KEY).encrypt(value)
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -38,6 +46,7 @@ async def get_or_create_client(
     telegram_id: int,
     master_id: str,
     name: str | None = None,
+    phone: str | None = None,
 ) -> tuple[Client, bool]:
     result = await session.execute(
         select(Client).where(
@@ -52,7 +61,8 @@ async def get_or_create_client(
     client = Client(
         telegram_id=telegram_id,
         master_id=master_id,
-        name_encrypted=name,
+        name_encrypted=_encrypt_field(name),
+        phone_encrypted=_encrypt_field(phone),
     )
     session.add(client)
     await session.commit()
