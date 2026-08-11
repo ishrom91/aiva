@@ -1,25 +1,11 @@
-from .booking import (
-    BookingCreateRequest,
-    BookingUpdateRequest,
-    BookingResponse,
-    BookingStatus
-)
-from .subscription import (
-    SubscriptionCreateRequest,
-    SubscriptionUpdateRequest,
-    SubscriptionResponse,
-    SubscriptionStatus,
-    TariffName
-)
+"""Schemas package for Aiva AI Bot."""
+
+from .booking import BookingCreate, BookingResponse
+from .subscription import SubscriptionCreate, SubscriptionResponse
 
 __all__ = [
-    "BookingCreateRequest",
-    "BookingUpdateRequest", 
+    "BookingCreate",
     "BookingResponse",
-    "BookingStatus",
-    "SubscriptionCreateRequest",
-    "SubscriptionUpdateRequest",
+    "SubscriptionCreate",
     "SubscriptionResponse",
-    "SubscriptionStatus",
-    "TariffName"
 ]

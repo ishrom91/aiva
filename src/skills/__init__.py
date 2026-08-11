@@ -1,9 +1,18 @@
-from .base import BaseSkill, PermissionLevel
-from .booking_skill import BookingSkill, BookingSkillState
+"""Skills package for Aiva AI Bot."""
 
-__all__ = [
-    "BaseSkill",
-    "PermissionLevel", 
-    "BookingSkill",
-    "BookingSkillState"
-]
+from .base import BaseSkill
+from .booking_skill import BookingSkill
+
+# Placeholder skill names for future implementation
+# RetentionSkill
+# MarketingSkill
+# VoiceSkill
+
+__all__ = ["BaseSkill", "BookingSkill"]
+"""
+Skills package initialization
+"""
+from .base import SkillManager
+from .subscription_skill import SubscriptionSkill
+
+__all__ = ["BaseSkill", "SkillManager", "BookingSkill", "SubscriptionSkill"]

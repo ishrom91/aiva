@@ -1,54 +1,44 @@
 """
-Definition of tariffs and their limitations
+Tariff definitions for Aiva AI Bot
 """
+
+from typing import Dict, Optional
 
 TARIFFS = {
     "start": {
         "name": "Старт",
-        "price_rub": 990,
+        "price": 990,
         "monthly_bookings_limit": 50,
         "skills": ["booking"],
-        "features": [
-            "Запись клиентов",
-            "Напоминания за 24 часа",
-            "Базовый FAQ",
-            "До 50 записей в месяц"
-        ]
+        "features": ["basic_faq", "reminders"],
     },
     "pro": {
         "name": "Профи",
-        "price_rub": 1990,
+        "price": 1990,
         "monthly_bookings_limit": 200,
         "skills": ["booking", "retention", "post_care"],
-        "features": [
-            "Всё из тарифа 'Старт'",
-            "Навык 'Консьерж' (возврат спящих клиентов)",
-            "Навык 'Пост-забота'",
-            "До 200 записей в месяц"
-        ]
+        "features": ["ai_faq_rag", "advanced_reminders"],
     },
     "salon": {
         "name": "Салон",
-        "price_rub": 3990,
-        "monthly_bookings_limit": -1,  # unlimited
-        "skills": ["booking", "retention", "post_care", "marketing", "analytics"],
-        "features": [
-            "Всё из тарифа 'Профи'",
-            "Навык 'Авто-Маркетолог'",
-            "Аналитика",
-            "До 5 мастеров",
-            "Безлимит записей"
-        ]
-    }
+        "price": 3990,
+        "monthly_bookings_limit": -1,  # Unlimited
+        "skills": ["booking", "retention", "marketing", "analytics"],
+        "features": ["multi_master_support", "advanced_analytics"],
+    },
 }
 
+
+def get_tariff_config(tariff_name: str) -> Optional[Dict]:
+    """
+    Get tariff configuration by name
+    """
+    return TARIFFS.get(tariff_name.lower())
+
+
 VOICE_ADDON = {
-    "name": "Голосовой агент",
-    "price_rub": 990,
-    "skills": ["voice"],
-    "features": [
-        "Прием входящих звонков",
-        "Голосовые напоминания",
-        "Интеграция с Алисой"
-    ]
+    "name": "Голос",
+    "price": 990,
+    "skill": "voice",
+    "features": ["calls", "alice_integration"],
 }

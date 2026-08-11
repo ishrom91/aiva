@@ -1,33 +1,70 @@
-from sqlalchemy import String, Integer, DateTime, JSON, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column
-from .base import BaseModel
+"""Interaction model for event sourcing and data collection."""
+
+from datetime import datetime
 from enum import Enum
-import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    text,
+)
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base, UUIDMixin
+
+if TYPE_CHECKING:
+    from .master import Master
 
 
-class InteractionDirection(str, Enum):
+class InteractionDirection(Enum):
+    """Enum for interaction directions."""
+
     INBOUND = "inbound"
     OUTBOUND = "outbound"
 
 
-class Interaction(BaseModel):
-    """Event sourcing model: logging ALL interactions for future Data API"""
+class Interaction(Base, UUIDMixin):
+    """Model for all interactions (event sourcing)."""
+
     __tablename__ = "interactions"
-    
-    event_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'message_received', 'booking_created', etc.
-    master_id: Mapped[int] = mapped_column(nullable=False)  # FK to masters table
-    client_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256(telegram_id + salt)
-    skill_name: Mapped[str] = mapped_column(String(50), nullable=True)  # 'booking', 'retention', 'faq'
-    direction: Mapped[InteractionDirection] = mapped_column(SQLEnum(InteractionDirection), nullable=True)
-    service_type: Mapped[str] = mapped_column(String(100), nullable=True)  # 'manicure_classic', 'pedicure_hardware'
-    price: Mapped[int] = mapped_column(nullable=True)  # Price in kopecks
-    location_district: Mapped[str] = mapped_column(String(100), nullable=True)  # District of the master
-    metadata: Mapped[dict] = mapped_column(JSON, nullable=True)  # Additional data like {"message_text_length": 45, ...}
-    
+
     __table_args__ = (
-        # Indexes for performance
-        {"postgresql_using": "btree", "columns": ["master_id", "created_at"]},
-        {"postgresql_using": "btree", "columns": ["event_type", "created_at"]},
-        {"postgresql_using": "btree", "columns": ["service_type", "created_at"]},
-        {"postgresql_using": "btree", "columns": ["location_district", "created_at"]},
+        CheckConstraint("client_hash IS NOT NULL"),
+        CheckConstraint("master_id IS NOT NULL"),
+        Index("ix_interactions_master_created", "master_id", "created_at"),
+        Index("ix_interactions_event_created", "event_type", "created_at"),
+        Index("ix_interactions_service_created", "service_type", "created_at"),
+        Index("ix_interactions_district_created", "location_district", "created_at"),
     )
+
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    master_id: Mapped[str] = mapped_column(
+        String, ForeignKey("masters.id"), nullable=False
+    )
+    client_hash: Mapped[str] = mapped_column(String, nullable=False)
+    skill_name: Mapped[str | None] = mapped_column(String)
+    direction: Mapped[InteractionDirection] = mapped_column(
+        SQLEnum(InteractionDirection)
+    )
+    service_type: Mapped[str | None] = mapped_column(String)
+    price: Mapped[int | None] = mapped_column(Integer)
+    location_district: Mapped[str | None] = mapped_column(String)
+    event_metadata: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
+    )  # Changed name to avoid SQLAlchemy conflict
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        server_onupdate=None,
+    )
+
+    # Relationships
+    master: Mapped["Master"] = relationship(back_populates="interactions")

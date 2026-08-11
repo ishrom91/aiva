@@ -1,58 +1,54 @@
+"""Test configuration for Aiva AI Bot."""
+
 import pytest
-import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlalchemy.pool import StaticPool
-from unittest.mock import AsyncMock, MagicMock
-from src.models import Base
-from src.database import get_session
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+@pytest_asyncio.fixture(scope="session")
+async def engine():
+    """Create test database engine."""
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        import src.models  # noqa: F401 — register all models
+        from src.models.base import Base
 
-
-@pytest.fixture(scope="session")
-async def db_engine():
-    """Create a test database engine."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        poolclass=StaticPool,
-        echo=True,
-        connect_args={"check_same_thread": False}
-    )
-    
-    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
-    yield engine
-    
-    await engine.dispose()
+
+    yield test_engine
+    await test_engine.dispose()
 
 
-@pytest.fixture(scope="function")
-async def db_session(db_engine):
-    """Create a test database session."""
-    async with AsyncSession(bind=db_engine) as session:
+@pytest_asyncio.fixture
+async def db_session(engine):
+    """Create a database session."""
+    session_factory = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+    async with session_factory() as session:
         yield session
+        await session.rollback()
 
 
 @pytest.fixture
-def mock_bot():
-    """Create a mock Telegram bot."""
-    bot = AsyncMock()
-    bot.send_message = AsyncMock(return_value=None)
-    return bot
+def make_master():
+    """Factory function to create a master instance."""
+    pytest.skip("phase 2")
 
 
 @pytest.fixture
-def mock_update():
-    """Create a mock update object."""
-    update = MagicMock()
-    update.message = MagicMock()
-    update.callback_query = MagicMock()
-    return update
+def make_client():
+    """Factory function to create a client instance."""
+    pytest.skip("phase 2")
+
+
+@pytest.fixture
+def make_service():
+    """Factory function to create a service instance."""
+    pytest.skip("phase 2")
+
+
+@pytest.fixture
+def make_subscription():
+    """Factory function to create a subscription instance."""
+    pytest.skip("phase 2")

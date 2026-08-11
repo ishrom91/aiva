@@ -1,61 +1,40 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import AsyncAdaptedQueuePool
-from typing import AsyncGenerator
+"""Database connection and session management."""
+
 from contextlib import asynccontextmanager
 
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-class Base(DeclarativeBase):
-    """Base class for all models"""
-    pass
+from .models.base import Base
 
-
-# Global engine and sessionmaker instances
 engine = None
-AsyncSessionLocal = None
+SessionLocal = None
+
+__all__ = ["Base", "engine", "SessionLocal", "init_db", "get_session", "close_db"]
 
 
-def init_db(database_url: str):
-    """Initialize database engine and session factory"""
-    global engine, AsyncSessionLocal
-    engine = create_async_engine(
-        database_url,
-        poolclass=AsyncAdaptedQueuePool,
-        pool_size=20,
-        max_overflow=30,
-        pool_pre_ping=True,
-        pool_recycle=300,
-    )
-    AsyncSessionLocal = async_sessionmaker(
-        engine,
-        class_=async_sessionmaker,
-        expire_on_commit=False,
-        autoflush=False,
-        autocommit=False,
-    )
-
-
-async def get_session() -> AsyncGenerator[async_sessionmaker, None]:
-    """Dependency for FastAPI to get database session"""
-    async with AsyncSessionLocal() as session:
-        yield session
+async def init_db(database_url: str) -> None:
+    """Initialize database connection."""
+    global engine, SessionLocal
+    engine = create_async_engine(database_url)
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
 @asynccontextmanager
-async def get_db_session():
-    """Context manager for getting database session"""
-    async with AsyncSessionLocal() as session:
+async def get_session():
+    """Get database session."""
+    if SessionLocal is None:
+        raise RuntimeError("Database not initialized. Call init_db first.")
+
+    async with SessionLocal() as session:
         try:
             yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         finally:
             await session.close()
 
 
-async def close_db():
-    """Close database engine"""
+async def close_db() -> None:
+    """Close database connections."""
+    global engine
     if engine:
         await engine.dispose()
+        engine = None

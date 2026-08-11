@@ -1,8 +1,6 @@
-from .logging import LoggingMiddleware, setup_logging_middleware
-from .event_logger import EventLoggerMiddleware
+"""Middlewares package for Aiva AI Bot."""
 
-__all__ = [
-    "LoggingMiddleware",
-    "setup_logging_middleware",
-    "EventLoggerMiddleware"
-]
+from .event_logger import EventLoggerMiddleware
+from .logging import AivaLoggingMiddleware
+
+__all__ = ["AivaLoggingMiddleware", "EventLoggerMiddleware"]

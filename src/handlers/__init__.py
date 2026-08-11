@@ -1,11 +1,8 @@
-from .start import router as start_router
-from .booking import router as booking_router
-from .admin import router as admin_router
-from .subscription import router as subscription_router
+"""Handlers package for Aiva AI Bot."""
 
-__all__ = [
-    "start_router",
-    "booking_router", 
-    "admin_router",
-    "subscription_router"
-]
+from . import admin, booking, start, subscription
+
+# Export all routers
+ALL_ROUTERS = [start.router, booking.router, admin.router, subscription.router]
+
+__all__ = ["ALL_ROUTERS"]

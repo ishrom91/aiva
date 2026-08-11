@@ -1,30 +1,44 @@
-from sqlalchemy import String, Integer, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .base import BaseModel
+from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING
+
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy import Enum as SQLEnum
-import datetime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from .client import Client
+    from .master import Master
+    from .service import Service
 
 
-class BookingStatus(str, Enum):
+class BookingStatus(Enum):
+    """Enum for booking statuses."""
+
     PENDING = "pending"
     CONFIRMED = "confirmed"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
 
 
-class Booking(BaseModel):
-    """Model representing a booking/appointment"""
+class Booking(Base, UUIDMixin, TimestampMixin):
+    """Model for bookings/appointments."""
+
     __tablename__ = "bookings"
-    
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
-    service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), index=True)
-    master_id: Mapped[int] = mapped_column(ForeignKey("masters.id"), index=True)
-    datetime: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
-    status: Mapped[BookingStatus] = mapped_column(SQLEnum(BookingStatus), default=BookingStatus.PENDING)
-    notes: Mapped[str] = mapped_column(String(500), nullable=True)
-    
-    # Relationships using string-based references
-    client: Mapped["Client"] = relationship("Client", back_populates="bookings")
-    service: Mapped["Service"] = relationship("Service", back_populates="bookings")
-    master: Mapped["Master"] = relationship("Master", back_populates="bookings")
+
+    client_id: Mapped[str] = mapped_column(String, ForeignKey("clients.id"))
+    service_id: Mapped[str] = mapped_column(String, ForeignKey("services.id"))
+    master_id: Mapped[str] = mapped_column(String, ForeignKey("masters.id"))
+    datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[BookingStatus] = mapped_column(
+        SQLEnum(BookingStatus), default=BookingStatus.PENDING
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    client: Mapped["Client"] = relationship(back_populates="bookings")
+    service: Mapped["Service"] = relationship(back_populates="bookings")
+    master: Mapped["Master"] = relationship(back_populates="bookings")

@@ -1,19 +1,29 @@
-from sqlalchemy import String, Integer, JSON, ForeignKey
+"""Client model representing customers of masters."""
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .base import BaseModel
+
+from .base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from .booking import Booking
+    from .master import Master
 
 
-class Client(BaseModel):
-    """Model representing a client/customer"""
+class Client(Base, UUIDMixin, TimestampMixin):
+    """Model for clients of masters."""
+
     __tablename__ = "clients"
-    
-    telegram_id: Mapped[int] = mapped_column(unique=True, index=True)
-    master_id: Mapped[int] = mapped_column(ForeignKey("masters.id"), index=True)
-    phone: Mapped[str] = mapped_column(String(20))  # Encrypted phone number
-    name: Mapped[str] = mapped_column(String(255))
-    preferences: Mapped[dict] = mapped_column(JSON, default=dict)  # Service preferences, notes
-    reliability_score: Mapped[float] = mapped_column(default=5.0)  # Rating from 1-5 based on attendance
-    
-    # Relationship
-    master: Mapped["Master"] = relationship("Master", back_populates="clients")
-    bookings: Mapped[list["Booking"]] = relationship("Booking", back_populates="client")
+
+    telegram_id: Mapped[int] = mapped_column(Integer)
+    master_id: Mapped[str] = mapped_column(String, ForeignKey("masters.id"), index=True)
+    phone_encrypted: Mapped[str | None] = mapped_column(String)
+    name_encrypted: Mapped[str | None] = mapped_column(String)
+    preferences: Mapped[dict | None] = mapped_column(String)  # JSON in string form
+    reliability_score: Mapped[int] = mapped_column(Integer, default=50)
+
+    # Relationships
+    master: Mapped["Master"] = relationship(back_populates="clients")
+    bookings: Mapped[list["Booking"]] = relationship(back_populates="client")

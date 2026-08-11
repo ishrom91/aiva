@@ -1,216 +1,272 @@
-from typing import Any, Dict, List
-from enum import Enum
-from .base import BaseSkill, PermissionLevel
-from ..services.booking_service import BookingService
-from ..repositories.booking_repo import BookingRepository
+"""
+Booking skill implementation
+Handles appointment booking functionality
+"""
+
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional, Union
+
+import structlog
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-class BookingSkillState(Enum):
-    """States for the booking FSM"""
-    CHOOSE_SERVICE = "choose_service"
-    CHOOSE_DATE = "choose_date"
-    CHOOSE_TIME = "choose_time"
-    CONFIRMATION = "confirmation"
+from ..models import Booking, Client
+from ..repositories.booking_repo import BookingRepository
+from ..services.booking_service import BookingService
+from .base import BaseSkill
 
 
 class BookingSkill(BaseSkill):
     """
-    Skill for handling booking/appointment scheduling functionality.
-    Allows users to schedule appointments with beauty professionals.
+    Skill for handling appointment bookings.
+    Provides functionality for scheduling, rescheduling, and managing appointments.
     """
-    
-    def __init__(self, booking_service: BookingService):
-        super().__init__(
-            name="booking",
-            description="Handles appointment booking functionality for beauty professionals"
-        )
-        self.booking_service = booking_service
-    
-    async def can_handle(self, event: Dict[str, Any]) -> bool:
-        """
-        Determine if this skill can handle the given event.
-        Handles booking-related commands and callbacks.
-        """
-        # Check if event contains booking-related command or callback
-        if event.get("type") == "message":
-            text = event.get("text", "").lower()
-            return any(cmd in text for cmd in ["/book", "/booking", "записаться", "запись"])
-        elif event.get("type") == "callback_query":
-            callback_data = event.get("data", "")
-            return any(state.value in callback_data for state in BookingSkillState)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.skill_id = "booking"
+        self.skill_name = "Booking"
+        self.logger = structlog.get_logger(__name__)
+
+    @property
+    def name(self) -> str:
+        return "booking"
+
+    async def can_handle(
+        self,
+        message: Union[Message, CallbackQuery],
+        state: FSMContext,
+        db_session: AsyncSession,
+        **kwargs: Any,
+    ) -> bool:
+        """Determine if this skill can handle the given event."""
+        if isinstance(message, Message):
+            text = message.text or ""
+            return any(
+                cmd in text.lower()
+                for cmd in ["/book", "/booking", "/my_bookings", "/schedule"]
+            )
+        if isinstance(message, CallbackQuery):
+            data = message.data or ""
+            return any(
+                trigger in data
+                for trigger in ["book_", "booking_", "my_bookings", "schedule_"]
+            )
         return False
-    
-    async def handle(self, event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle booking-related events.
-        """
-        # Get the current state from context
-        state = context.get("state", BookingSkillState.CHOOSE_SERVICE.value)
-        
-        # Create a database session for this handler
-        db_session: AsyncSession = context.get("db_session")
-        if not db_session:
-            raise ValueError("Database session is required for booking skill")
-        
-        # Route to appropriate handler based on state
-        if state == BookingSkillState.CHOOSE_SERVICE.value:
-            return await self._handle_choose_service(event, context, db_session)
-        elif state == BookingSkillState.CHOOSE_DATE.value:
-            return await self._handle_choose_date(event, context, db_session)
-        elif state == BookingSkillState.CHOOSE_TIME.value:
-            return await self._handle_choose_time(event, context, db_session)
-        elif state == BookingSkillState.CONFIRMATION.value:
-            return await self._handle_confirmation(event, context, db_session)
-        else:
-            # Default to service selection if state is unknown
-            return await self._handle_choose_service(event, context, db_session)
-    
-    async def _handle_choose_service(self, event: Dict[str, Any], context: Dict[str, Any], db_session: AsyncSession) -> Dict[str, Any]:
-        """Handle service selection step"""
-        user_id = context.get("user_id")
-        
-        # Get master's services
-        services = await self.booking_service.get_master_services(db_session, user_id)
-        
-        if not services:
+
+    async def process(
+        self,
+        message: Union[Message, CallbackQuery],
+        state: FSMContext,
+        db_session: AsyncSession,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Process the booking-related event."""
+        try:
+            user_id = message.from_user.id
+
+            client_result = await db_session.execute(
+                select(Client).filter(Client.telegram_id == user_id)
+            )
+            client = client_result.scalar_one_or_none()
+
+            if not client:
+                return {
+                    "handled": False,
+                    "error": "Client not found",
+                    "message": (
+                        "Для записи на прием необходимо быть "
+                        "зарегистрированным клиентом."
+                    ),
+                }
+
+            repo = BookingRepository(db_session)
+            service = BookingService(repo)
+
+            if isinstance(message, Message):
+                return await self._process_message(
+                    message, client, service, db_session
+                )
+            if isinstance(message, CallbackQuery):
+                return await self._process_callback(
+                    message, client, service, db_session
+                )
+        except Exception as exc:
+            self.logger.error(
+                "Error processing booking skill", error=str(exc), exc_info=True
+            )
+            return {"handled": False, "error": str(exc)}
+        return None
+
+    async def _process_message(
+        self,
+        message: Message,
+        client: Client,
+        service: BookingService,
+        db_session: AsyncSession,
+    ) -> Dict[str, Any]:
+        """Process a text message for booking."""
+        text = (message.text or "").lower()
+
+        if "/book" in text or "/booking" in text or "/schedule" in text:
+            services = await service.get_master_services(
+                db_session, client.master.telegram_id
+            )
+
+            if not services:
+                return {
+                    "handled": True,
+                    "message": "К сожалению, пока нет доступных услуг для записи.",
+                    "type": "available_services",
+                }
+
+            service_list = [
+                {
+                    "id": service.id,
+                    "name": service.name,
+                    "duration": service.duration_minutes,
+                    "price": service.price,
+                }
+                for service in services
+            ]
+
             return {
-                "type": "message",
-                "text": "К сожалению, пока нет доступных услуг для записи.",
-                "reply_markup": None
+                "handled": True,
+                "type": "available_services",
+                "services": service_list,
+                "message": (
+                    f"Доступные услуги для записи у мастера {client.master.name}:"
+                ),
             }
-        
-        # Create inline keyboard with services
-        keyboard = []
-        row = []
-        for i, service in enumerate(services):
-            row.append({
-                "text": f"{service.name} ({service.duration_minutes} мин)",
-                "callback_data": f"service_{service.id}"
-            })
-            if len(row) == 2:  # Two buttons per row
-                keyboard.append(row)
-                row = []
-        
-        if row:  # Add remaining buttons
-            keyboard.append(row)
-        
+
+        if "/my_bookings" in text:
+            bookings = await service.get_client_bookings(client.telegram_id)
+
+            if not bookings:
+                return {
+                    "handled": True,
+                    "message": "У вас нет предстоящих записей.",
+                    "type": "my_bookings",
+                }
+
+            bookings_text = "ваши предстоящие записи:\n\n"
+            for booking in bookings:
+                bookings_text += (
+                    f"📅 {booking.datetime.strftime('%d.%m.%Y %H:%M')}\n"
+                    f" услуга: {booking.service.name}\n"
+                    f" продолжительность: {booking.service.duration_minutes} мин\n\n"
+                )
+
+            return {
+                "handled": True,
+                "type": "my_bookings",
+                "bookings": bookings,
+                "message": bookings_text,
+            }
+
+        return {"handled": False, "message": "Неизвестная команда бронирования."}
+
+    async def _process_callback(
+        self,
+        callback: CallbackQuery,
+        client: Client,
+        service: BookingService,
+        db_session: AsyncSession,
+    ) -> Dict[str, Any]:
+        """Process a callback query for booking."""
+        data = callback.data or ""
+
+        if data.startswith("book_service_"):
+            try:
+                service_id = int(data.split("_")[2])
+                available_dates = await service.get_available_dates(
+                    db_session, service_id
+                )
+
+                if not available_dates:
+                    return {
+                        "handled": True,
+                        "message": (
+                            "К сожалению, нет доступных слотов для этой услуги "
+                            "в ближайшие дни."
+                        ),
+                        "type": "no_available_slots",
+                    }
+
+                return {
+                    "handled": True,
+                    "type": "available_dates",
+                    "service_id": service_id,
+                    "dates": available_dates,
+                    "message": "Выберите дату для записи:",
+                }
+            except (ValueError, IndexError):
+                return {"handled": False, "error": "Invalid service ID in callback"}
+
+        if data.startswith("book_date_"):
+            try:
+                parts = data.split("_", 2)
+                service_id = int(parts[2])
+                date_str = parts[3]
+                time_slots = await service.get_available_time_slots(
+                    db_session, service_id, date_str
+                )
+
+                if not time_slots:
+                    return {
+                        "handled": True,
+                        "message": f"К сожалению, нет доступных слотов на {date_str}.",
+                        "type": "no_available_times",
+                    }
+
+                return {
+                    "handled": True,
+                    "type": "available_times",
+                    "service_id": service_id,
+                    "date": date_str,
+                    "times": [ts.strftime("%H:%M") for ts in time_slots],
+                    "message": f"Доступное время на {date_str}:",
+                }
+            except (ValueError, IndexError):
+                return {"handled": False, "error": "Invalid date/time in callback"}
+
         return {
-            "type": "message",
-            "text": "Выберите услугу:",
-            "reply_markup": {
-                "inline_keyboard": keyboard
-            }
+            "handled": False,
+            "message": "Неизвестный тип callback для бронирования.",
         }
-    
-    async def _handle_choose_date(self, event: Dict[str, Any], context: Dict[str, Any], db_session: AsyncSession) -> Dict[str, Any]:
-        """Handle date selection step"""
-        # Extract service_id from callback
-        callback_data = event.get("data", "")
-        if callback_data.startswith("service_"):
-            service_id = int(callback_data.split("_")[1])
-            context["selected_service_id"] = service_id
-        
-        # Generate calendar for next 14 days
-        dates = await self.booking_service.get_available_dates(db_session, context.get("selected_service_id"))
-        
-        # Create inline keyboard with dates
-        keyboard = []
-        row = []
-        for i, date in enumerate(dates):
-            row.append({
-                "text": date.strftime("%d.%m"),
-                "callback_data": f"date_{date.strftime('%Y-%m-%d')}"
-            })
-            if len(row) == 3:  # Three buttons per row
-                keyboard.append(row)
-                row = []
-        
-        if row:  # Add remaining buttons
-            keyboard.append(row)
-        
-        return {
-            "type": "message",
-            "text": "Выберите дату:",
-            "reply_markup": {
-                "inline_keyboard": keyboard
-            }
-        }
-    
-    async def _handle_choose_time(self, event: Dict[str, Any], context: Dict[str, Any], db_session: AsyncSession) -> Dict[str, Any]:
-        """Handle time selection step"""
-        # Extract date from callback
-        callback_data = event.get("data", "")
-        if callback_data.startswith("date_"):
-            date_str = callback_data.split("_", 1)[1]
-            context["selected_date"] = date_str
-        
-        # Get available time slots for selected date and service
-        time_slots = await self.booking_service.get_available_time_slots(
-            db_session,
-            context.get("selected_service_id"),
-            context.get("selected_date")
+
+    async def send_reminders(self, db_session: AsyncSession) -> list[dict[str, Any]]:
+        """Send booking reminders to clients."""
+        now = datetime.now()
+        tomorrow = now + timedelta(days=1)
+
+        booking_result = await db_session.execute(
+            select(Booking).filter(
+                Booking.datetime >= now,
+                Booking.datetime < tomorrow,
+                Booking.status == "confirmed",
+            )
         )
-        
-        # Create inline keyboard with time slots
-        keyboard = []
-        row = []
-        for i, slot in enumerate(time_slots):
-            row.append({
-                "text": slot.strftime("%H:%M"),
-                "callback_data": f"time_{slot.strftime('%H:%M')}"
-            })
-            if len(row) == 4:  # Four buttons per row
-                keyboard.append(row)
-                row = []
-        
-        if row:  # Add remaining buttons
-            keyboard.append(row)
-        
-        return {
-            "type": "message",
-            "text": "Выберите время:",
-            "reply_markup": {
-                "inline_keyboard": keyboard
-            }
-        }
-    
-    async def _handle_confirmation(self, event: Dict[str, Any], context: Dict[str, Any], db_session: AsyncSession) -> Dict[str, Any]:
-        """Handle booking confirmation step"""
-        # Extract time from callback
-        callback_data = event.get("data", "")
-        if callback_data.startswith("time_"):
-            time_str = callback_data.split("_", 1)[1]
-            context["selected_time"] = time_str
-        
-        # Combine date and time to get full datetime
-        selected_datetime = f"{context['selected_date']} {context['selected_time']}:00"
-        
-        # Create the booking
-        booking = await self.booking_service.create_booking(
-            db_session=db_session,
-            client_telegram_id=context.get("user_id"),
-            service_id=context.get("selected_service_id"),
-            datetime_str=selected_datetime
-        )
-        
-        if booking:
-            return {
-                "type": "message",
-                "text": f"✅ Ваша запись успешно создана!\n\nУслуга: {booking.service.name}\nДата: {booking.datetime.strftime('%d.%m.%Y %H:%M')}",
-                "reply_markup": None
-            }
-        else:
-            return {
-                "type": "message",
-                "text": "❌ Не удалось создать запись. Пожалуйста, попробуйте снова.",
-                "reply_markup": None
-            }
-    
-    def get_required_permissions(self) -> List[PermissionLevel]:
-        """Return the permissions required for this skill"""
-        return [PermissionLevel.REGISTERED]
-    
-    def get_supported_commands(self) -> List[str]:
-        """Return list of supported commands"""
-        return ["/book", "/booking"]
+        bookings = booking_result.scalars().all()
+
+        reminder_messages = []
+        for booking in bookings:
+            message_text = (
+                f"Напоминание о записи:\n\n"
+                f"📅 {booking.datetime.strftime('%d.%m.%Y %H:%M')}\n"
+                f"Услуга: {booking.service.name}\n"
+                f"Мастер: {booking.master.name}\n\n"
+                f"Пожалуйста, подтвердите или отмените запись за 24 часа до начала."
+            )
+            reminder_messages.append(
+                {
+                    "telegram_id": booking.client.telegram_id,
+                    "message": message_text,
+                    "booking_id": booking.id,
+                }
+            )
+
+        self.logger.info("Prepared booking reminders", count=len(reminder_messages))
+        return reminder_messages

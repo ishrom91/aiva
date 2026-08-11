@@ -1,30 +1,21 @@
 #!/bin/bash
 
-echo "Setting up Aiva AI Bot..."
+# Setup script for Aiva AI Bot deployment
 
-# Create virtual environment
-python -m venv venv
+set -e
 
-# Activate virtual environment
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+echo "Updating system packages..."
+sudo apt update
 
-# Upgrade pip
-pip install --upgrade pip
+echo "Installing Docker and Docker Compose..."
+sudo apt install -y docker.io docker-compose-plugin
+sudo systemctl enable docker
+sudo systemctl start docker
 
-# Install dependencies
-pip install -r requirements.txt
+echo "Adding current user to docker group..."
+sudo usermod -aG docker $USER
 
-# Install dev dependencies
-pip install -r requirements-dev.txt
+echo "Installing Yandex Cloud CLI (optional)..."
+curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
 
-# Create necessary directories
-mkdir -p migrations/versions
-
-# Initialize Alembic (if not already done)
-if [ ! -f alembic.ini ]; then
-    cp alembic.ini.example alembic.ini
-fi
-
-echo "Setup complete!"
-echo "To activate the virtual environment, run: source venv/bin/activate"
-echo "Or on Windows: venv\\Scripts\\activate"
+echo "Setup completed!"

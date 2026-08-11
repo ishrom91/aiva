@@ -1,48 +1,37 @@
-# Multi-stage build: builder stage
-FROM python:3.11-slim AS builder
+# Multi-stage build for Aiva AI Bot
 
-# Install system dependencies for building packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+# Builder stage
+FROM python:3.11-slim as builder
 
-# Copy requirements and install Python dependencies
+WORKDIR /install
+
 COPY requirements.txt .
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements.txt
 
+RUN pip install --user -r requirements.txt
 
 # Runtime stage
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim
 
-# Create non-root user for security
-RUN groupadd -r aivauser && useradd -r -g aivauser aivauser
-
-# Set working directory
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
+# Copy installed packages from builder stage
+COPY --from=builder /root/.local /root/.local
 
-# Copy wheels and install dependencies
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache /wheels/*
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
-# Copy application code
-COPY src ./src
+# Copy source code
+COPY ./src ./src
+COPY pyproject.toml .
 COPY alembic.ini .
 
 # Change ownership to non-root user
-RUN chown -R aivauser:aivauser /app
-USER aivauser
+RUN chown -R appuser:appgroup /app
+USER appuser
 
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port 8000"]

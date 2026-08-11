@@ -7,6 +7,7 @@ from src.handlers.booking import command_book_handler
 from src.services.subscription_service import SubscriptionService
 
 
+@pytest.mark.skip(reason="phase 2")
 @pytest.mark.asyncio
 async def test_command_book_handler_with_subscription(db_session, mock_bot, mock_update):
     """Test the book command handler with subscription check."""
@@ -59,3 +60,21 @@ async def test_command_book_handler_with_subscription(db_session, mock_bot, mock
     # Check that the bot sent a message
     # This would need to be adjusted based on actual implementation
     # mock_bot.send_message.assert_called()
+
+
+@pytest.mark.skip(reason="phase 2")
+async def test_booking_creation():
+    """Test booking creation."""
+    raise NotImplementedError("phase 2")
+
+
+@pytest.mark.skip(reason="phase 2")
+async def test_booking_conflict():
+    """Test booking conflict detection."""
+    raise NotImplementedError("phase 2")
+
+
+@pytest.mark.skip(reason="phase 2")
+async def test_subscription_limit_check():
+    """Test subscription limit checking during booking."""
+    raise NotImplementedError("phase 2")

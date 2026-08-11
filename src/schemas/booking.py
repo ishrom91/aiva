@@ -1,38 +1,28 @@
-from pydantic import BaseModel as PydanticBaseModel
+"""Pydantic schemas for booking operations."""
+
 from datetime import datetime
 from typing import Optional
-from enum import Enum
+
+from pydantic import BaseModel
 
 
-class BookingStatus(str, Enum):
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+class BookingCreate(BaseModel):
+    """Schema for creating a new booking."""
 
-
-class BookingCreateRequest(PydanticBaseModel):
-    client_id: int
-    service_id: int
+    client_id: str
+    service_id: str
+    master_id: str
     datetime: datetime
-    notes: Optional[str] = None
 
 
-class BookingUpdateRequest(PydanticBaseModel):
-    status: Optional[BookingStatus] = None
-    notes: Optional[str] = None
+class BookingResponse(BaseModel):
+    """Schema for booking response."""
 
-
-class BookingResponse(PydanticBaseModel):
-    id: int
-    client_id: int
-    service_id: int
-    master_id: int
+    id: str
+    client_id: str
+    service_id: str
+    master_id: str
     datetime: datetime
-    status: BookingStatus
-    notes: Optional[str] = None
+    status: str
     created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
+    updated_at: Optional[datetime] = None

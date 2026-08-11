@@ -1,22 +1,27 @@
-from sqlalchemy import String, Integer, Numeric, ForeignKey
+"""Service model representing beauty services offered by masters."""
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .base import BaseModel
+
+from .base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from .booking import Booking
+    from .master import Master
 
 
-class Service(BaseModel):
-    """Model representing a beauty service offered by a master"""
+class Service(Base, UUIDMixin, TimestampMixin):
+    """Model for services offered by masters."""
+
     __tablename__ = "services"
-    
-    master_id: Mapped[int] = mapped_column(ForeignKey("masters.id"), index=True)
-    name: Mapped[str] = mapped_column(String(255))
-    duration_minutes: Mapped[int] = mapped_column(default=60)
-    price: Mapped[float] = mapped_column(Numeric(precision=10, scale=2))
-    description: Mapped[str] = mapped_column(String(500), nullable=True)
-    
-    # Relationship
-    master: Mapped["Master"] = relationship("Master", back_populates="services")
-    bookings: Mapped[list["Booking"]] = relationship("Booking", back_populates="service")
 
+    master_id: Mapped[str] = mapped_column(String, ForeignKey("masters.id"))
+    name: Mapped[str] = mapped_column(String)
+    duration_minutes: Mapped[int] = mapped_column(Integer)
+    price: Mapped[int] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-# Adding relationship to Master model needs to be done in master.py
-# We'll add it there since we can't do forward reference here properly
+    master: Mapped["Master"] = relationship(back_populates="services")
+    bookings: Mapped[list["Booking"]] = relationship(back_populates="service")

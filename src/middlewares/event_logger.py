@@ -1,201 +1,170 @@
-from typing import Callable, Awaitable
-from aiogram import BaseMiddleware, Bot
-from aiogram.types import Message, CallbackQuery, Update
-from sqlalchemy.ext.asyncio import AsyncSession
-from ..models import Interaction, Master
-from ..database import get_db_session
-from ..utils.anonymization import generate_client_hash, extract_time_metadata
-from ..config import settings
-import structlog
+"""Event logging middleware for Aiva AI Bot."""
+
+import asyncio
 from datetime import datetime
+from typing import Any, Callable
+
+import structlog
+from aiogram import BaseMiddleware
+from aiogram.types import Update
+
+from ..config import settings
+from ..database import get_session  # Updated import
+from ..models.interaction import Interaction, InteractionDirection
+from ..utils.anonymization import extract_time_metadata, generate_client_hash
 
 
 class EventLoggerMiddleware(BaseMiddleware):
-    """
-    Middleware for logging ALL events to the interactions table.
-    Works asynchronously (background task), does not block the bot.
-    """
-    
+    """Middleware for logging all interactions (event sourcing)."""
+
     def __init__(self):
         super().__init__()
         self.logger = structlog.get_logger(__name__)
-    
-    async def __call__(
-        self,
-        handler: Callable,
-        event: Update,
-        data: dict
-    ) -> None:
-        # Process the event first
+
+    async def __call__(self, handler: Callable, event: Update, data: dict) -> Any:
+        """Process the event and log the interaction in the background."""
+        # Call the handler first and return its result immediately (non-blocking)
         result = await handler(event, data)
-        
-        # Then log the event asynchronously
-        await self.log_event(event, data)
-        
+
+        # Schedule the logging task to run in the background
+        if settings.DATA_COLLECTION_ENABLED:
+            asyncio.create_task(self._log_interaction(event, data))
+
         return result
-    
-    async def log_event(self, event: Update, data: dict) -> None:
-        """
-        Log the event to the interactions table.
-        """
+
+    async def _log_interaction(self, event: Update, data: dict):
+        """Log the interaction in the background."""
         try:
-            # Determine event type
-            event_type = self._get_event_type(event)
-            if not event_type:
-                return  # Skip logging for events we don't track
-            
-            # Extract user info
-            user_id = None
-            if event.message:
-                user_id = event.message.from_user.id
-            elif event.callback_query:
-                user_id = event.callback_query.from_user.id
-            elif event.edited_message:
-                user_id = event.edited_message.from_user.id
-            
-            if not user_id:
+            # Check if data collection is enabled
+            if not settings.DATA_COLLECTION_ENABLED:
                 return
-            
-            # Get master_id from the data context
-            master_id = data.get("master_id")
+
+            # Determine event type based on the event
+            event_type = self._get_event_type(event)
+
+            # Extract telegram_id from the event
+            telegram_id = self._get_telegram_id(event)
+            if not telegram_id:
+                return  # Skip logging if we can't identify the user
+
+            # Generate client hash using anonymization utility
+            # Use the salt from settings
+            client_hash = generate_client_hash(telegram_id, settings.CLIENT_HASH_SALT)
+
+            # Get master_id from context or data
+            master_id = self._get_master_id(data)
             if not master_id:
-                # Try to get master_id from the database based on user_id
-                master_id = await self._get_master_id_by_user_id(user_id)
-                if not master_id:
-                    return
-            
-            # Generate client hash
-            client_hash = generate_client_hash(user_id, settings.CLIENT_HASH_SALT)
-            
-            # Extract metadata
-            metadata = self._extract_metadata(event, data)
-            
-            # Determine direction
-            direction = "inbound"  # Default for user-initiated events
-            
-            # Determine skill name if available
-            skill_name = data.get("skill_name", None)
-            
-            # Determine service type if applicable
-            service_type = data.get("service_type", None)
-            
-            # Get price if applicable
-            price = data.get("price", None)
-            
-            # Get location district if available
-            location_district = data.get("location_district", None)
-            
-            # Create interaction record
-            async with get_db_session() as session:
-                interaction = Interaction(
-                    event_type=event_type,
-                    master_id=master_id,
-                    client_hash=client_hash,
-                    skill_name=skill_name,
-                    direction=direction,
-                    service_type=service_type,
-                    price=price,
-                    location_district=location_district,
-                    metadata=metadata
-                )
-                
+                return  # Skip logging if we can't identify the master
+
+            # Collect metadata - calling extract_time_metadata without parameters for now
+            # Since the implementation is not provided, we'll call it with current datetime
+            extracted_data = extract_time_metadata(
+                datetime.now()
+            )  # Pass current datetime
+
+            metadata = {
+                "time_of_day": extracted_data.get("time_of_day"),
+                "day_of_week": extracted_data.get("day_of_week"),
+                "hour": extracted_data.get("hour"),
+            }
+
+            # Extract message length if available (not the actual text!)
+            message_text_length = 0
+            if hasattr(event, "message") and event.message and event.message.text:
+                message_text_length = len(event.message.text)
+            elif hasattr(event, "text"):
+                message_text_length = len(event.text)
+
+            metadata["message_text_length"] = message_text_length
+
+            # Log actual text only if explicitly enabled (not for production!)
+            if settings.DATA_COLLECTION_LOG_TEXT:
+                text_content = ""
+                if hasattr(event, "message") and event.message and event.message.text:
+                    text_content = event.message.text
+                elif hasattr(event, "text"):
+                    text_content = event.text
+                metadata["text_content"] = text_content
+
+            # Determine interaction direction
+            direction = InteractionDirection.INBOUND  # For now, assume inbound
+
+            # Create interaction record fields
+            interaction_fields = {
+                "event_type": event_type,
+                "master_id": master_id,
+                "client_hash": client_hash,
+                "direction": direction,
+                "event_metadata": metadata,
+            }
+
+            # Try to extract additional fields if available
+            if hasattr(event, "message") and event.message:
+                # If it's a message event, try to extract service info
+                interaction_fields["skill_name"] = data.get("current_skill", None)
+
+            # Create a database session and save the interaction
+            # Since the repo methods are not fully implemented, we'll need to use direct ORM operations
+            async with get_session() as session:
+                interaction = Interaction(**interaction_fields)
                 session.add(interaction)
                 await session.commit()
-                
+
         except Exception as e:
-            # Log the error but don't interrupt the main flow
-            self.logger.error("Failed to log interaction", error=str(e), exc_info=True)
-    
+            # Log any exceptions but don't crash the bot
+            self.logger.exception("Failed to log interaction", error=str(e))
+
     def _get_event_type(self, event: Update) -> str:
-        """
-        Determine the event type based on the update.
-        """
+        """Determine event type from the event object."""
         if event.message:
-            if event.message.text:
-                return "message_received"
-            elif event.message.contact:
-                return "contact_shared"
-            elif event.message.location:
-                return "location_shared"
+            return "message_received"
         elif event.callback_query:
-            if event.callback_query.data.startswith("booking_"):
-                return "booking_action"
-            elif event.callback_query.data.startswith("service_"):
-                return "service_selected"
-            elif event.callback_query.data.startswith("date_"):
-                return "date_selected"
-            elif event.callback_query.data.startswith("time_"):
-                return "time_selected"
-            elif event.callback_query.data.startswith("confirm_"):
-                return "booking_confirmed"
-            elif event.callback_query.data.startswith("cancel_"):
-                return "booking_cancelled"
-            else:
-                return "callback_query"
-        elif event.edited_message:
-            return "message_edited"
-        elif event.channel_post:
-            return "channel_post"
-        elif event.edited_channel_post:
-            return "channel_post_edited"
+            return "callback_query_received"
         elif event.inline_query:
-            return "inline_query"
+            return "inline_query_received"
         elif event.chosen_inline_result:
-            return "inline_result_chosen"
+            return "chosen_inline_result"
         elif event.shipping_query:
             return "shipping_query"
         elif event.pre_checkout_query:
             return "pre_checkout_query"
-        
-        return None
-    
-    def _extract_metadata(self, event: Update, data: dict) -> dict:
-        """
-        Extract metadata from the event.
-        """
-        metadata = {}
-        
-        # Add timestamp metadata
-        timestamp = datetime.utcnow()
-        metadata.update(extract_time_metadata(timestamp))
-        
-        # Add message length if applicable
-        if event.message and event.message.text:
-            metadata["message_text_length"] = len(event.message.text)
-        
-        # Add booking status if applicable
-        if data.get("booking_status"):
-            metadata["booking_status"] = data["booking_status"]
-        
-        # Add upsell info if applicable
-        if data.get("upsell_tariff"):
-            metadata["upsell_tariff"] = data["upsell_tariff"]
-        
-        # Add state info if applicable
-        if data.get("state"):
-            metadata["current_state"] = data["state"]
-        
-        return metadata
-    
-    async def _get_master_id_by_user_id(self, user_id: int) -> int:
-        """
-        Get master_id based on user_id from the database.
-        """
-        async with get_db_session() as session:
-            # Check if user is a master first
-            master_result = await session.execute(
-                select(Master).filter(Master.telegram_id == user_id)
-            )
-            master = master_result.scalar_one_or_none()
-            
-            if master:
-                return master.id
-            
-            # If not a master, user might be a client, find their master
-            # This would require importing Client model and doing another query
-            # For now, returning None
+        elif event.poll:
+            return "poll"
+        elif event.poll_answer:
+            return "poll_answer"
+        else:
+            return "unknown_event"
+
+    def _get_telegram_id(self, event: Update) -> int | None:
+        """Extract telegram ID from the event."""
+        if event.message and event.message.from_user:
+            return event.message.from_user.id
+        elif event.callback_query and event.callback_query.from_user:
+            return event.callback_query.from_user.id
+        elif event.inline_query and event.inline_query.from_user:
+            return event.inline_query.from_user.id
+        elif event.chosen_inline_result and event.chosen_inline_result.from_user:
+            return event.chosen_inline_result.from_user.id
+        elif event.shipping_query and event.shipping_query.from_user:
+            return event.shipping_query.from_user.id
+        elif event.pre_checkout_query and event.pre_checkout_query.from_user:
+            return event.pre_checkout_query.from_user.id
+        elif event.poll_answer and event.poll_answer.user:
+            return event.poll_answer.user.id
+        else:
             return None
 
-
-# Import here to avoid circular imports
-from sqlalchemy import select
+    def _get_master_id(self, data: dict) -> str | None:
+        """Extract master ID from the context data."""
+        # Try to get master_id from various sources in the data
+        if "master" in data and hasattr(data["master"], "id"):
+            return data["master"].id
+        elif "master_id" in data:
+            return data["master_id"]
+        elif "state" in data and "master" in data["state"]:
+            return data["state"]["master"]
+        elif "booking" in data and hasattr(data["booking"], "master_id"):
+            return data["booking"].master_id
+        else:
+            # If we can't find master_id, we can't log the interaction
+            return None
