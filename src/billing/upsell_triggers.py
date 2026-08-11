@@ -92,4 +92,4 @@ async def check_upsell_triggers(session: AsyncSession, master_id: str) -> dict |
             "message": "📊 Мастера с 'Консьерж' зарабатывают на 23% больше.",
         }
 
-    return None
+    return {"should_upsell": False}
