@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ASSETS_BRAND_DIR: str = "assets/brand"
     ASSETS_BOT_DIR: str = "assets/bot"
     BOT_ASSET_FILE_IDS: dict = {}
+    TELEGRAM_PROXY: str | None = None
 
 
 settings = Settings()  # type: ignore[call-arg]

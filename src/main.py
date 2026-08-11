@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 import redis.asyncio as redis
 import structlog
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Update
@@ -18,6 +20,23 @@ from .handlers import ALL_ROUTERS
 from .middlewares.event_logger import EventLoggerMiddleware
 from .middlewares.master_context import MasterContextMiddleware
 from .utils.logger import setup_logging
+
+
+def create_bot() -> Bot:
+    """Create Bot with explicit Telegram API server and optional HTTP/SOCKS proxy."""
+    session = (
+        AiohttpSession(proxy=settings.TELEGRAM_PROXY)
+        if settings.TELEGRAM_PROXY
+        else AiohttpSession()
+    )
+    return Bot(
+        token=settings.BOT_TOKEN,
+        session=session,
+        server=TelegramAPIServer(
+            base="https://api.telegram.org",
+            file="https://api.telegram.org/file/bot",
+        ),
+    )
 
 
 @asynccontextmanager
@@ -35,7 +54,7 @@ async def lifespan(app: FastAPI):
         redis_connection = redis.from_url(settings.REDIS_URL)
         storage = RedisStorage(redis=redis_connection)
 
-    bot = Bot(token=settings.BOT_TOKEN)
+    bot = create_bot()
     dispatcher = Dispatcher(storage=storage)
 
     for router in ALL_ROUTERS:
