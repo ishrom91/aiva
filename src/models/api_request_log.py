@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, UUIDMixin
@@ -19,5 +19,5 @@ class APIRequestLog(Base, UUIDMixin):
     status_code: Mapped[int] = mapped_column(Integer)
     response_time_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=text("now()")
+        DateTime(timezone=True), server_default=func.now()
     )

@@ -59,7 +59,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
+    "src.handlers.admin",
     "src.handlers.booking",
+    "src.handlers.start",
+    "src.handlers.subscription",
     "src.repositories.booking_repo",
     "src.repositories.interaction_repo",
     "src.schemas.booking",

@@ -86,9 +86,7 @@ class BookingSkill(BaseSkill):
             service = BookingService(repo)
 
             if isinstance(message, Message):
-                return await self._process_message(
-                    message, client, service, db_session
-                )
+                return await self._process_message(message, client, service, db_session)
             if isinstance(message, CallbackQuery):
                 return await self._process_callback(
                     message, client, service, db_session

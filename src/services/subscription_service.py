@@ -1,10 +1,13 @@
-from datetime import datetime, timedelta
-from typing import Any, Optional
+"""Subscription business logic."""
 
-from sqlalchemy import select
+import json
+from datetime import datetime, timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..billing.tariffs import get_tariff_config
+from ..models.booking import Booking, BookingStatus
 from ..models.master import Master
 from ..models.subscription import Subscription, SubscriptionStatus
 
@@ -12,91 +15,121 @@ from ..models.subscription import Subscription, SubscriptionStatus
 class SubscriptionService:
     """Service class for handling subscription operations."""
 
-    async def get_or_create(self, master_id: str) -> Any:
-        """Get existing or create a new subscription for a master."""
-        raise NotImplementedError("phase 2")
+    async def get_or_create(
+        self, session: AsyncSession, master_id: str
+    ) -> Subscription:
+        subscription = await self.get_master_subscription(session, master_id)
+        if subscription:
+            return subscription
 
-    async def current_month_usage(self, master_id: str) -> int:
-        """Get the number of bookings made by a master in the current month."""
-        raise NotImplementedError("phase 2")
+        tariff = get_tariff_config("start")
+        if not tariff:
+            raise ValueError("Default tariff 'start' is not configured")
 
-    async def can_book_more(self, master_id: str) -> bool:
-        """Check if a master can book more appointments based on their subscription."""
-        raise NotImplementedError("phase 2")
+        now = datetime.now()
+        subscription = Subscription(
+            master_id=master_id,
+            tariff_name="start",
+            status=SubscriptionStatus.ACTIVE,
+            monthly_bookings_limit=tariff["monthly_bookings_limit"],
+            additional_skills=json.dumps(tariff.get("skills", [])),
+            current_period_start=now,
+            current_period_end=now + timedelta(days=7),
+            is_trial=True,
+        )
+        session.add(subscription)
+        await session.commit()
+        await session.refresh(subscription)
+        return subscription
 
-    async def upgrade(self, master_id: str, tariff: str) -> bool:
-        """Upgrade a master's subscription to a new tariff."""
-        raise NotImplementedError("phase 2")
+    async def current_month_usage(self, session: AsyncSession, master_id: str) -> int:
+        now = datetime.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        stmt = select(func.count(Booking.id)).where(
+            Booking.master_id == master_id,
+            Booking.status == BookingStatus.CONFIRMED,
+            Booking.datetime >= month_start,
+        )
+        result = await session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def can_book_more(self, session: AsyncSession, master_id: str) -> bool:
+        subscription = await self.get_or_create(session, master_id)
+        if subscription.monthly_bookings_limit == -1:
+            return True
+        usage = await self.current_month_usage(session, master_id)
+        return usage < subscription.monthly_bookings_limit
+
+    async def upgrade(
+        self, session: AsyncSession, master_id: str, new_tariff: str
+    ) -> Subscription:
+        tariff = get_tariff_config(new_tariff)
+        if not tariff:
+            raise ValueError(f"Unknown tariff: {new_tariff}")
+
+        subscription = await self.get_or_create(session, master_id)
+        subscription.tariff_name = new_tariff.lower()
+        subscription.monthly_bookings_limit = tariff["monthly_bookings_limit"]
+        subscription.additional_skills = json.dumps(tariff.get("skills", []))
+        subscription.is_trial = False
+        subscription.status = SubscriptionStatus.ACTIVE
+        subscription.current_period_end = subscription.current_period_end + timedelta(
+            days=30
+        )
+        await session.commit()
+        await session.refresh(subscription)
+        return subscription
 
     async def get_master_subscription(
-        self, db_session: AsyncSession, master_id: int
-    ) -> Optional[Subscription]:
-        """
-        Get subscription for a master
-        """
+        self, session: AsyncSession, master_id: str
+    ) -> Subscription | None:
         stmt = select(Subscription).where(Subscription.master_id == master_id)
-        result = await db_session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def create_subscription(
         self,
-        db_session: AsyncSession,
-        master_id: int,
+        session: AsyncSession,
+        master_id: str,
         tariff_name: str,
         is_trial: bool = False,
-        period_months: int = 1,
-    ) -> Optional[Subscription]:
-        """
-        Create a new subscription for a master
-        """
-        # Check if master exists
-        master_stmt = select(Master).where(Master.id == master_id)
-        master_result = await db_session.execute(master_stmt)
-        master = master_result.scalar_one_or_none()
-
-        if not master:
+        period_days: int = 30,
+    ) -> Subscription | None:
+        master_result = await session.execute(
+            select(Master).where(Master.id == master_id)
+        )
+        if master_result.scalar_one_or_none() is None:
             return None
 
-        # Get tariff configuration
         tariff_config = get_tariff_config(tariff_name)
         if not tariff_config:
             return None
 
-        # Calculate subscription period
         start_date = datetime.now()
-        end_date = start_date + timedelta(days=30 * period_months)
+        end_date = start_date + timedelta(days=period_days)
 
-        # Create subscription
         subscription = Subscription(
             master_id=master_id,
-            tariff_name=tariff_name,
+            tariff_name=tariff_name.lower(),
             status=SubscriptionStatus.ACTIVE,
-            monthly_bookings_limit=tariff_config.monthly_bookings_limit,
-            additional_skills=tariff_config.additional_skills,
+            monthly_bookings_limit=tariff_config["monthly_bookings_limit"],
+            additional_skills=json.dumps(tariff_config.get("skills", [])),
             current_period_start=start_date,
             current_period_end=end_date,
             is_trial=is_trial,
         )
-
-        db_session.add(subscription)
-        await db_session.commit()
-        await db_session.refresh(subscription)
-
+        session.add(subscription)
+        await session.commit()
+        await session.refresh(subscription)
         return subscription
 
     async def check_subscription_limits(
-        self, db_session: AsyncSession, master_id: int
+        self, session: AsyncSession, master_id: str
     ) -> dict:
-        """
-        Check if master has exceeded their subscription limits
-        """
-        subscription = await self.get_master_subscription(db_session, master_id)
+        subscription = await self.get_master_subscription(session, master_id)
 
         if not subscription or subscription.status != SubscriptionStatus.ACTIVE:
             return {"can_book": False, "reason": "no_active_subscription", "limits": {}}
-
-        # Count bookings in current period
-        from ..models.booking import Booking, BookingStatus
 
         booking_stmt = select(Booking).where(
             Booking.master_id == master_id,
@@ -104,14 +137,13 @@ class SubscriptionService:
             Booking.datetime <= subscription.current_period_end,
             Booking.status != BookingStatus.CANCELLED,
         )
-        booking_result = await db_session.execute(booking_stmt)
+        booking_result = await session.execute(booking_stmt)
         current_bookings = len(booking_result.scalars().all())
 
-        # Check limits
         can_book = True
         reason = ""
 
-        if subscription.monthly_bookings_limit != -1:  # -1 means unlimited
+        if subscription.monthly_bookings_limit != -1:
             if current_bookings >= subscription.monthly_bookings_limit:
                 can_book = False
                 reason = "monthly_limit_exceeded"
@@ -131,40 +163,32 @@ class SubscriptionService:
 
     async def update_subscription_status(
         self,
-        db_session: AsyncSession,
-        subscription_id: int,
+        session: AsyncSession,
+        subscription_id: str,
         new_status: SubscriptionStatus,
-    ):
-        """
-        Update subscription status
-        """
+    ) -> Subscription | None:
         stmt = select(Subscription).where(Subscription.id == subscription_id)
-        result = await db_session.execute(stmt)
+        result = await session.execute(stmt)
         subscription = result.scalar_one_or_none()
 
         if subscription:
             subscription.status = new_status
-            await db_session.commit()
+            await session.commit()
             return subscription
-
         return None
 
     async def extend_subscription_period(
-        self, db_session: AsyncSession, subscription_id: int, months: int = 1
-    ):
-        """
-        Extend subscription period by specified months
-        """
+        self, session: AsyncSession, subscription_id: str, months: int = 1
+    ) -> Subscription | None:
         stmt = select(Subscription).where(Subscription.id == subscription_id)
-        result = await db_session.execute(stmt)
+        result = await session.execute(stmt)
         subscription = result.scalar_one_or_none()
 
         if subscription and subscription.status == SubscriptionStatus.ACTIVE:
-            # Extend from current end date
-            new_end_date = subscription.current_period_end + timedelta(days=30 * months)
-            subscription.current_period_end = new_end_date
-            await db_session.commit()
-            await db_session.refresh(subscription)
+            subscription.current_period_end = (
+                subscription.current_period_end + timedelta(days=30 * months)
+            )
+            await session.commit()
+            await session.refresh(subscription)
             return subscription
-
         return None

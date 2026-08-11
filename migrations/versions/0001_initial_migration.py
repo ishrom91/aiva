@@ -1,4 +1,4 @@
-"""Initial migration for Aiva AI models (UUID primary keys).
+"""Initial migration for Aiva AI models (UUID primary keys, SQLite-compatible).
 
 Revision ID: 0001
 Revises:
@@ -7,41 +7,28 @@ Create Date: 2024-07-13 15:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = "0001"
 down_revision = None
 branch_labels = None
 depends_on = None
 
-booking_status = postgresql.ENUM(
-    "pending",
-    "confirmed",
-    "completed",
-    "cancelled",
-    "no_show",
-    name="bookingstatus",
-    create_type=False,
-)
-subscription_status = postgresql.ENUM(
-    "active",
-    "expired",
-    "cancelled",
-    name="subscriptionstatus",
-    create_type=False,
-)
-interaction_direction = postgresql.ENUM(
-    "inbound",
-    "outbound",
-    name="interactiondirection",
-    create_type=False,
-)
-
 
 def upgrade() -> None:
-    booking_status.create(op.get_bind(), checkfirst=True)
-    subscription_status.create(op.get_bind(), checkfirst=True)
-    interaction_direction.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    is_sqlite = bind.dialect.name == "sqlite"
+    json_type = sa.JSON()
+
+    booking_status_type = sa.String(20) if is_sqlite else sa.Enum(
+        "pending", "confirmed", "completed", "cancelled", "no_show",
+        name="bookingstatus",
+    )
+    subscription_status_type = sa.String(20) if is_sqlite else sa.Enum(
+        "active", "expired", "cancelled", name="subscriptionstatus",
+    )
+    interaction_direction_type = sa.String(20) if is_sqlite else sa.Enum(
+        "inbound", "outbound", name="interactiondirection",
+    )
 
     op.create_table(
         "masters",
@@ -49,19 +36,19 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("telegram_id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("settings", postgresql.JSON(astext_type=sa.Text()), nullable=True),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("settings", json_type, nullable=True),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1" if is_sqlite else "true")),
         sa.Column("work_start_hour", sa.Integer(), nullable=True),
         sa.Column("work_end_hour", sa.Integer(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
@@ -75,20 +62,20 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("telegram_id", sa.Integer(), nullable=False),
         sa.Column("master_id", sa.String(length=36), nullable=False),
         sa.Column("phone_encrypted", sa.String(), nullable=True),
         sa.Column("name_encrypted", sa.String(), nullable=True),
-        sa.Column("preferences", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("preferences", json_type, nullable=True),
         sa.Column("reliability_score", sa.Integer(), nullable=False, server_default="50"),
         sa.ForeignKeyConstraint(["master_id"], ["masters.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -101,20 +88,20 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("master_id", sa.String(length=36), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("duration_minutes", sa.Integer(), nullable=False),
         sa.Column("price", sa.Integer(), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1" if is_sqlite else "true")),
         sa.ForeignKeyConstraint(["master_id"], ["masters.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -125,25 +112,20 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("client_id", sa.String(length=36), nullable=False),
         sa.Column("service_id", sa.String(length=36), nullable=False),
         sa.Column("master_id", sa.String(length=36), nullable=False),
         sa.Column("datetime", sa.DateTime(timezone=True), nullable=False),
-        sa.Column(
-            "status",
-            booking_status,
-            nullable=False,
-            server_default="pending",
-        ),
+        sa.Column("status", booking_status_type, nullable=False, server_default="pending"),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(["client_id"], ["clients.id"]),
         sa.ForeignKeyConstraint(["service_id"], ["services.id"]),
@@ -157,32 +139,34 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("master_id", sa.String(length=36), nullable=False),
         sa.Column("tariff_name", sa.String(), nullable=False),
-        sa.Column(
-            "status",
-            subscription_status,
-            nullable=False,
-            server_default="active",
-        ),
+        sa.Column("status", subscription_status_type, nullable=False, server_default="active"),
         sa.Column("monthly_bookings_limit", sa.Integer(), nullable=False),
         sa.Column("additional_skills", sa.String(), nullable=True),
         sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=False),
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("is_trial", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("is_trial", sa.Boolean(), nullable=False, server_default=sa.text("0" if is_sqlite else "false")),
         sa.ForeignKeyConstraint(["master_id"], ["masters.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("master_id"),
     )
+
+    interaction_args = []
+    if not is_sqlite:
+        interaction_args = [
+            sa.CheckConstraint("client_hash IS NOT NULL", name="ck_interactions_client_hash_not_null"),
+            sa.CheckConstraint("master_id IS NOT NULL", name="ck_interactions_master_id_not_null"),
+        ]
 
     op.create_table(
         "interactions",
@@ -191,46 +175,25 @@ def upgrade() -> None:
         sa.Column("master_id", sa.String(length=36), nullable=False),
         sa.Column("client_hash", sa.String(), nullable=False),
         sa.Column("skill_name", sa.String(), nullable=True),
-        sa.Column("direction", interaction_direction, nullable=False),
+        sa.Column("direction", interaction_direction_type, nullable=False),
         sa.Column("service_type", sa.String(), nullable=True),
         sa.Column("price", sa.Integer(), nullable=True),
         sa.Column("location_district", sa.String(), nullable=True),
-        sa.Column("event_metadata", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("event_metadata", json_type, nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint("client_hash IS NOT NULL", name="ck_interactions_client_hash_not_null"),
-        sa.CheckConstraint("master_id IS NOT NULL", name="ck_interactions_master_id_not_null"),
         sa.ForeignKeyConstraint(["master_id"], ["masters.id"]),
         sa.PrimaryKeyConstraint("id"),
+        *interaction_args,
     )
-    op.create_index(
-        "ix_interactions_master_created",
-        "interactions",
-        ["master_id", "created_at"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_interactions_event_created",
-        "interactions",
-        ["event_type", "created_at"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_interactions_service_created",
-        "interactions",
-        ["service_type", "created_at"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_interactions_district_created",
-        "interactions",
-        ["location_district", "created_at"],
-        unique=False,
-    )
+    op.create_index("ix_interactions_master_created", "interactions", ["master_id", "created_at"])
+    op.create_index("ix_interactions_event_created", "interactions", ["event_type", "created_at"])
+    op.create_index("ix_interactions_service_created", "interactions", ["service_type", "created_at"])
+    op.create_index("ix_interactions_district_created", "interactions", ["location_district", "created_at"])
 
     op.create_table(
         "master_analytics",
@@ -266,20 +229,20 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("company_name", sa.String(), nullable=False),
         sa.Column("contact_email", sa.String(), nullable=False),
         sa.Column("api_tier", sa.String(), nullable=False),
         sa.Column("monthly_quota", sa.Integer(), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1" if is_sqlite else "true")),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -289,21 +252,21 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.Column("data_api_client_id", sa.String(length=36), nullable=False),
         sa.Column("key_hash", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("permissions", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("permissions", json_type, nullable=True),
         sa.Column("rate_limit", sa.Integer(), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1" if is_sqlite else "true")),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["data_api_client_id"], ["data_api_clients.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -321,7 +284,7 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(datetime('now'))") if is_sqlite else sa.text("now()"),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["api_key_id"], ["api_keys.id"]),
@@ -336,13 +299,11 @@ def downgrade() -> None:
     op.drop_table("data_api_clients")
     op.drop_table("district_analytics")
     op.drop_table("master_analytics")
-
     op.drop_index("ix_interactions_district_created", table_name="interactions")
     op.drop_index("ix_interactions_service_created", table_name="interactions")
     op.drop_index("ix_interactions_event_created", table_name="interactions")
     op.drop_index("ix_interactions_master_created", table_name="interactions")
     op.drop_table("interactions")
-
     op.drop_table("subscriptions")
     op.drop_table("bookings")
     op.drop_table("services")
@@ -350,7 +311,3 @@ def downgrade() -> None:
     op.drop_table("clients")
     op.drop_index("ix_masters_telegram_id", table_name="masters")
     op.drop_table("masters")
-
-    interaction_direction.drop(op.get_bind(), checkfirst=True)
-    subscription_status.drop(op.get_bind(), checkfirst=True)
-    booking_status.drop(op.get_bind(), checkfirst=True)

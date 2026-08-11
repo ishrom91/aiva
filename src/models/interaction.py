@@ -4,17 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import (
-    CheckConstraint,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    text,
-)
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, UUIDMixin
@@ -36,8 +27,6 @@ class Interaction(Base, UUIDMixin):
     __tablename__ = "interactions"
 
     __table_args__ = (
-        CheckConstraint("client_hash IS NOT NULL"),
-        CheckConstraint("master_id IS NOT NULL"),
         Index("ix_interactions_master_created", "master_id", "created_at"),
         Index("ix_interactions_event_created", "event_type", "created_at"),
         Index("ix_interactions_service_created", "service_type", "created_at"),
@@ -56,15 +45,9 @@ class Interaction(Base, UUIDMixin):
     service_type: Mapped[str | None] = mapped_column(String)
     price: Mapped[int | None] = mapped_column(Integer)
     location_district: Mapped[str | None] = mapped_column(String)
-    event_metadata: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True
-    )  # Changed name to avoid SQLAlchemy conflict
+    event_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        server_onupdate=None,
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    # Relationships
     master: Mapped["Master"] = relationship(back_populates="interactions")

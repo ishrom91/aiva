@@ -16,6 +16,7 @@ from .config import settings
 from .database import close_db, engine, init_db
 from .handlers import ALL_ROUTERS
 from .middlewares.event_logger import EventLoggerMiddleware
+from .middlewares.master_context import MasterContextMiddleware
 from .utils.logger import setup_logging
 
 
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     for router in ALL_ROUTERS:
         dispatcher.include_router(router)
 
+    dispatcher.update.middleware(MasterContextMiddleware())
     dispatcher.update.outer_middleware(EventLoggerMiddleware())
 
     app.state.polling_task = None

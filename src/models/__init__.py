@@ -1,7 +1,7 @@
 from .api_key import APIKey
 from .api_request_log import APIRequestLog
 from .base import Base
-from .booking import Booking
+from .booking import Booking, BookingStatus
 from .client import Client
 from .data_api_client import DataAPIClient
 from .district_analytics import DistrictAnalytics
@@ -17,6 +17,7 @@ __all__ = [
     "Client",
     "Service",
     "Booking",
+    "BookingStatus",
     "Subscription",
     "Interaction",
     "MasterAnalytics",
