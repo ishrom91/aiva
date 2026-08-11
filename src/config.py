@@ -33,5 +33,14 @@ class Settings(BaseSettings):
     BOT_ASSET_FILE_IDS: dict = {}
     TELEGRAM_PROXY: str | None = None
 
+    # Phase 2: AI & retention
+    YANDEX_FOLDER_ID: str | None = None
+    YANDEX_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    AI_FAQ_ENABLED: bool = True
+    REMINDER_HOURS_BEFORE: int = 24
+    WINBACK_DAYS: int = 60
+
 
 settings = Settings()  # type: ignore[call-arg]

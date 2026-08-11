@@ -19,6 +19,7 @@ from .database import close_db, engine, init_db
 from .handlers import ALL_ROUTERS
 from .middlewares.event_logger import EventLoggerMiddleware
 from .middlewares.master_context import MasterContextMiddleware
+from .services.reminder_service import send_reminders
 from .utils.logger import setup_logging
 
 
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
     dispatcher.update.outer_middleware(EventLoggerMiddleware())
 
     app.state.polling_task = None
+    app.state.reminder_task = None
 
     if settings.WEBHOOK_URL:
         try:
@@ -89,7 +91,24 @@ async def lifespan(app: FastAPI):
     app.state.bot = bot
     app.state.dp = dispatcher
 
+    async def _reminder_loop() -> None:
+        while True:
+            try:
+                await send_reminders(bot)
+            except Exception as exc:
+                logger.exception("reminder_loop_error", error=str(exc))
+            await asyncio.sleep(3600)
+
+    app.state.reminder_task = asyncio.create_task(_reminder_loop())
+
     yield
+
+    if app.state.reminder_task is not None:
+        app.state.reminder_task.cancel()
+        try:
+            await app.state.reminder_task
+        except asyncio.CancelledError:
+            pass
 
     if app.state.polling_task is not None:
         app.state.polling_task.cancel()

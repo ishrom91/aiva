@@ -203,6 +203,7 @@ async def make_booking(
     when: datetime,
     *,
     status: BookingStatus = BookingStatus.CONFIRMED,
+    reminded_at: datetime | None = None,
 ) -> Booking:
     booking = Booking(
         master_id=master.id,
@@ -210,6 +211,7 @@ async def make_booking(
         service_id=service.id,
         datetime=when,
         status=status,
+        reminded_at=reminded_at,
     )
     session.add(booking)
     await session.commit()

@@ -1,8 +1,9 @@
 """Client model representing customers of masters."""
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDMixin
@@ -23,6 +24,9 @@ class Client(Base, UUIDMixin, TimestampMixin):
     name_encrypted: Mapped[str | None] = mapped_column(String)
     preferences: Mapped[dict | None] = mapped_column(String)  # JSON in string form
     reliability_score: Mapped[int] = mapped_column(Integer, default=50)
+    last_winback_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     master: Mapped["Master"] = relationship(back_populates="clients")

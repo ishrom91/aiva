@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime as dt
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -32,11 +32,14 @@ class Booking(Base, UUIDMixin, TimestampMixin):
     client_id: Mapped[str] = mapped_column(String, ForeignKey("clients.id"))
     service_id: Mapped[str] = mapped_column(String, ForeignKey("services.id"))
     master_id: Mapped[str] = mapped_column(String, ForeignKey("masters.id"))
-    datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    datetime: Mapped[dt] = mapped_column(DateTime(timezone=True))
     status: Mapped[BookingStatus] = mapped_column(
         SQLEnum(BookingStatus), default=BookingStatus.PENDING
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminded_at: Mapped[dt | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     client: Mapped["Client"] = relationship(back_populates="bookings")

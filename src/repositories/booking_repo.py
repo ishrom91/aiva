@@ -122,3 +122,27 @@ class BookingRepo:
         await self.session.commit()
         await self.session.refresh(booking)
         return booking
+
+    async def find_due_for_reminder(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[Booking]:
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(Booking)
+            .options(
+                selectinload(Booking.client),
+                selectinload(Booking.master),
+                selectinload(Booking.service),
+            )
+            .where(
+                Booking.status == BookingStatus.CONFIRMED,
+                Booking.reminded_at.is_(None),
+                Booking.datetime >= window_start,
+                Booking.datetime <= window_end,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
