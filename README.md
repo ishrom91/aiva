@@ -19,19 +19,18 @@ alembic upgrade head && uvicorn src.main:app --reload
 
 For local development leave `WEBHOOK_URL` empty to use **polling mode**.
 
-### B) Via Docker:
+### B) Production Docker stack:
 ```bash
-cp .env.example .env && # Edit .env with your settings
-docker compose -f docker/docker-compose.yml up -d --build
+cp .env.production.example .env
+# Fill BOT_TOKEN, DOMAIN and EMAIL; generate all secrets with scripts/setup.sh on the VPS.
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 ```
 
-> Note: For both options, you'll need Redis and PostgreSQL services running (either locally or via Docker)
+PostgreSQL, Redis, migrations, nginx and Certbot are included in the Compose stack. Local `.env` must use `postgresql+asyncpg://` for SQLAlchemy async.
 
 ## Deployment on VPS
 
-1. Run `setup.sh` to prepare the server
-2. Run `init-letsencrypt.sh` to configure SSL
-3. Deploy with `deploy.sh` and GitHub Secrets
+The automated VPS flow, HTTPS setup, backups and GitHub Actions configuration are documented in [DEPLOY.md](DEPLOY.md).
 
 ## Migration Command
 

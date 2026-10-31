@@ -47,8 +47,20 @@ logs/
 .env.local
 .env.*.local
 
-# Certificates
+# Certificates and database backups
 certbot/
+backups/
+*.dump
+
+# Test and local tool artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.deps/
+*.db
+*.db-journal
 
 # Assets binaries (not generated, but to be added separately)
 assets/brand/*.png

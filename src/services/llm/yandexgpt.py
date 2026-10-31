@@ -16,9 +16,7 @@ class YandexGPTLLM(BaseLLM):
     ) -> None:
         self.folder_id = folder_id or settings.YANDEX_FOLDER_ID or ""
         self.api_key = api_key or settings.YANDEX_API_KEY or ""
-        self.url = (
-            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-        )
+        self.url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 
     async def answer(self, question: str, context: str) -> str:
         system = (

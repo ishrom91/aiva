@@ -63,10 +63,7 @@ async def winback_run(callback: CallbackQuery) -> None:
             return
 
     result = await send_winback_campaign(bot, master.id)
-    text = (
-        f"✅ Написали {result['sent']} клиентам.\n"
-        f"Пропущено: {result['skipped']}"
-    )
+    text = f"✅ Написали {result['sent']} клиентам.\nПропущено: {result['skipped']}"
     if callback.message and hasattr(callback.message, "edit_text"):
         await callback.message.edit_text(text)
     await callback.answer()

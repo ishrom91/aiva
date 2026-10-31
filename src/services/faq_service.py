@@ -15,7 +15,9 @@ async def build_context(session: AsyncSession, master_id: str) -> str:
         return ""
 
     master_settings = master.settings or {}
-    district = master_settings.get("district") or master_settings.get("address") or "не указан"
+    district = (
+        master_settings.get("district") or master_settings.get("address") or "не указан"
+    )
 
     result = await session.execute(
         select(Service).where(

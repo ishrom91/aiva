@@ -10,7 +10,7 @@ from ..models.client import Client
 
 
 class ClientRepo:
-    """Repository class for client operations."""
+    """Repository for client operations."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -44,7 +44,8 @@ class ClientRepo:
             .where(
                 Client.master_id == master_id,
                 last_visit.c.last_visit < cutoff,
-                (Client.last_winback_at.is_(None)) | (Client.last_winback_at < cooldown),
+                (Client.last_winback_at.is_(None))
+                | (Client.last_winback_at < cooldown),
             )
         )
         result = await self.session.execute(stmt)
