@@ -36,7 +36,7 @@ def _migrate_test_db():
         os.remove("test_pytest.db")
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine():
     test_engine = create_async_engine(TEST_DB_URL, echo=False)
     yield test_engine

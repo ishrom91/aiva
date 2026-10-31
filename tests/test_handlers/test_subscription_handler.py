@@ -1,5 +1,6 @@
 """Tests for subscription handlers."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -37,12 +38,13 @@ async def test_subscription_command(db_session, session_override, sub_user):
 
 @pytest.mark.asyncio
 async def test_upgrade_command_no_trigger(db_session, session_override, sub_user):
+    recent_demo = datetime.now().isoformat()
     master = await make_master(
         db_session,
         telegram_id=sub_user.id,
         settings={
-            "last_lost_revenue_demo": "2026-08-10T12:00:00",
-            "last_social_proof": "2026-08-10T12:00:00",
+            "last_lost_revenue_demo": recent_demo,
+            "last_social_proof": recent_demo,
         },
     )
     await make_subscription(db_session, master)

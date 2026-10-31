@@ -1,4 +1,6 @@
 import asyncio
+import hmac
+import time
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
@@ -10,6 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Update
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +24,9 @@ from .middlewares.event_logger import EventLoggerMiddleware
 from .middlewares.master_context import MasterContextMiddleware
 from .services.reminder_service import send_reminders
 from .utils.logger import setup_logging
+
+APP_VERSION = "1.0.0"
+PROCESS_STARTED_AT = time.monotonic()
 
 
 def create_bot() -> Bot:
@@ -77,6 +83,9 @@ async def lifespan(app: FastAPI):
                     drop_pending_updates=True,
                 )
         except Exception as exc:
+            if settings.ENVIRONMENT.lower() == "production":
+                logger.error("Webhook configuration failed", error=str(exc))
+                raise
             logger.warning("Could not configure webhook", error=str(exc))
     else:
         try:
@@ -129,12 +138,12 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def root() -> dict:
-    return {"status": "ok", "service": "Aiva AI Bot", "version": "1.0.0"}
+    return {"status": "ok", "service": "Aiva AI Bot", "version": APP_VERSION}
 
 
 @app.get("/health")
-async def health_check() -> dict:
-    """Health check endpoint - ping Redis + DB."""
+async def health_check() -> JSONResponse:
+    """Readiness check for Docker, nginx and deployment smoke tests."""
     db_ok = False
     redis_ok = False
 
@@ -146,35 +155,31 @@ async def health_check() -> dict:
     except Exception:
         db_ok = False
 
+    redis_client: redis.Redis | None = None
     try:
         if settings.REDIS_URL:
             redis_client = redis.from_url(settings.REDIS_URL)
             await redis_client.ping()
-            await redis_client.aclose()
-            redis_ok = True
-        else:
-            redis_ok = True
+        redis_ok = True
     except Exception:
         redis_ok = False
+    finally:
+        if redis_client is not None:
+            await redis_client.aclose()
 
     checks = {
         "database": "ok" if db_ok else "failed",
         "redis": "ok" if redis_ok else "failed",
     }
-
-    if db_ok and redis_ok:
-        status = "ok"
-    elif db_ok or redis_ok:
-        status = "degraded"
-    else:
-        status = "error"
-
-    return {
+    status = "ok" if db_ok and redis_ok else "error"
+    payload = {
         "status": status,
         "service": "Aiva AI Bot",
-        "version": "1.0.0",
+        "version": APP_VERSION,
+        "uptime_seconds": round(time.monotonic() - PROCESS_STARTED_AT),
         "checks": checks,
     }
+    return JSONResponse(payload, status_code=200 if status == "ok" else 503)
 
 
 @app.post("/webhook")
@@ -182,7 +187,9 @@ async def webhook_handler(request: Request) -> dict:
     """Telegram webhook handler."""
     if settings.TELEGRAM_WEBHOOK_SECRET:
         secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        if secret_token != settings.TELEGRAM_WEBHOOK_SECRET:
+        if not secret_token or not hmac.compare_digest(
+            secret_token, settings.TELEGRAM_WEBHOOK_SECRET
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
     data = await request.json()

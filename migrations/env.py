@@ -4,6 +4,7 @@ import os
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 load_dotenv()
 
@@ -18,11 +19,20 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Get database URL from environment or config."""
+    """Convert async application URLs to synchronous Alembic driver URLs."""
     url = os.getenv("DATABASE_URL", "")
-    if url.startswith("sqlite+aiosqlite"):
-        url = url.replace("sqlite+aiosqlite", "sqlite", 1)
-    return url
+    if not url:
+        return url
+
+    parsed = make_url(url)
+    query = dict(parsed.query)
+    if parsed.drivername == "sqlite+aiosqlite":
+        parsed = parsed.set(drivername="sqlite")
+    elif parsed.drivername == "postgresql+asyncpg":
+        parsed = parsed.set(drivername="postgresql+psycopg2")
+        if "ssl" in query:
+            query["sslmode"] = query.pop("ssl")
+    return parsed.set(query=query).render_as_string(hide_password=False)
 
 
 def run_migrations_offline() -> None:
