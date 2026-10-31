@@ -1,81 +1,67 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Initialize Let's Encrypt certificates for Aiva AI Bot
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-set -e
-
-if ! [ -x "$(command -v docker)" ]; then
-  echo 'Error: Docker is not installed.' >&2
+if [[ ! -f .env ]]; then
+  echo "Missing .env. Run bash scripts/setup.sh and fill production secrets first." >&2
   exit 1
 fi
 
-domains=(your-domain.ru)
-rsa_key_size=4096
-data_path="./certbot"
-email="you@example.com" # Adding email for Let's Encrypt registration
-staging=0 # Set to 1 if you're testing your nginx setup to avoid hitting request limits
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
-if [ -d "$data_path" ]; then
-  read -p "Existing data found for $domains. Continue and replace existing certificate? (y/N) " decision
-  if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
-    exit
-  fi
+: "${DOMAIN:?Set DOMAIN in .env}"
+: "${EMAIL:?Set EMAIL in .env}"
+if [[ "$DOMAIN" == "your-domain.ru" || "$EMAIL" == "you@example.com" ]]; then
+  echo "Replace demo DOMAIN and EMAIL values in .env." >&2
+  exit 1
+fi
+if [[ -z "${WEBHOOK_URL:-}" ]]; then
+  WEBHOOK_URL="https://$DOMAIN/webhook"
+  sed -i "s|^WEBHOOK_URL=.*|WEBHOOK_URL=$WEBHOOK_URL|" .env
+  export WEBHOOK_URL
 fi
 
+COMPOSE=(docker compose --env-file .env -f docker/docker-compose.yml)
+CERT_PATH="certbot/conf/live/$DOMAIN/fullchain.pem"
+RENEWAL_PATH="certbot/conf/renewal/$DOMAIN.conf"
+mkdir -p certbot/conf certbot/www
 
-if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
-  echo "### Downloading recommended TLS parameters ..."
-  mkdir -p "$data_path/conf"
-  curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "$data_path/conf/options-ssl-nginx.conf"
-  curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "$data_path/conf/ssl-dhparams.pem"
-  echo
+if [[ -f "$CERT_PATH" && -f "$RENEWAL_PATH" ]]; then
+  echo "Certificate for $DOMAIN already exists; reloading nginx."
+  "${COMPOSE[@]}" exec nginx nginx -t
+  "${COMPOSE[@]}" exec nginx nginx -s reload
+  exit 0
 fi
 
-echo "### Creating dummy certificate for $domains ..."
-path="/etc/letsencrypt/live/$(echo $domains | sed -e 's/ /\n/g' | head -n1)"
-mkdir -p "$data_path/conf/live/$path"
-docker compose -f docker/docker-compose.yml run --rm --entrypoint "\
-  openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
-    -keyout '$path/privkey.pem' \
-    -out '$path/fullchain.pem' \
-    -subj '/CN=localhost'" certbot
-echo
+echo "[1/4] Creating a temporary certificate for nginx startup..."
+mkdir -p "certbot/conf/live/$DOMAIN"
+CONTAINER_CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+"${COMPOSE[@]}" run --rm --entrypoint \
+  "openssl req -x509 -nodes -newkey rsa:2048 -days 1 -keyout '$CONTAINER_CERT_DIR/privkey.pem' -out '$CONTAINER_CERT_DIR/fullchain.pem' -subj '/CN=$DOMAIN'" \
+  certbot
 
+echo "[2/4] Starting the application and nginx..."
+"${COMPOSE[@]}" up -d --build --force-recreate nginx
 
-echo "### Starting nginx ..."
-docker compose -f docker/docker-compose.yml up --force-recreate -d nginx
-echo
+echo "[3/4] Requesting the Let's Encrypt certificate..."
+"${COMPOSE[@]}" run --rm --entrypoint \
+  "rm -rf /etc/letsencrypt/live/$DOMAIN /etc/letsencrypt/archive/$DOMAIN /etc/letsencrypt/renewal/$DOMAIN.conf" \
+  certbot
 
-echo "### Deleting dummy certificate for $domains ..."
-docker compose -f docker/docker-compose.yml run --rm --entrypoint "\
-  rm -Rf /etc/letsencrypt/live/$path && \
-  rm -Rf /etc/letsencrypt/archive/$path && \
-  rm -Rf /etc/letsencrypt/renewal/$path.conf" certbot
-echo
+STAGING_ARG=""
+if [[ "${LETSENCRYPT_STAGING:-0}" == "1" ]]; then
+  STAGING_ARG="--staging"
+fi
+"${COMPOSE[@]}" run --rm --entrypoint \
+  "certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $EMAIL --rsa-key-size 4096 --agree-tos --no-eff-email --keep-until-expiring $STAGING_ARG" \
+  certbot
 
-
-echo "### Requesting Let's Encrypt certificate for $domains ..."
-domain_args=""
-for domain in "${domains[@]}"; do
-  domain_args="$domain_args -d $domain"
-done
-
-case "$email" in
-  "") email_arg="--register-unsafely-without-email" ;;
-  *) email_arg="--email $email" ;;
-esac
-
-if [ $staging != "0" ]; then staging_arg="--staging"; fi
-
-docker compose -f docker/docker-compose.yml run --rm --entrypoint "\
-  certbot certonly --webroot -w /var/www/certbot \
-    $staging_arg \
-    $email_arg \
-    $domain_args \
-    --rsa-key-size $rsa_key_size \
-    --agree-tos \
-    --force-renewal" certbot
-echo
-
-echo "### Reloading nginx ..."
-docker compose -f docker/docker-compose.yml exec nginx nginx -s reload
+echo "[4/4] Validating nginx and activating the certificate..."
+"${COMPOSE[@]}" exec nginx nginx -t
+"${COMPOSE[@]}" exec nginx nginx -s reload
+echo "HTTPS is configured for https://$DOMAIN"

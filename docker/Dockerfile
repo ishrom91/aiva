@@ -1,37 +1,35 @@
 # Multi-stage build for Aiva AI Bot
+FROM python:3.11-slim AS builder
 
-# Builder stage
-FROM python:3.11-slim as builder
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /install
+COPY requirements.txt ./
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-COPY requirements.txt .
+FROM python:3.11-slim AS runtime
 
-RUN pip install --user -r requirements.txt
-
-# Runtime stage
-FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY src ./src
+COPY migrations ./migrations
+COPY alembic.ini pyproject.toml ./
 
-# Copy installed packages from builder stage
-COPY --from=builder /root/.local /root/.local
-
-# Create non-root user
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
-
-# Copy source code
-COPY ./src ./src
-COPY pyproject.toml .
-COPY alembic.ini .
-
-# Change ownership to non-root user
-RUN chown -R appuser:appgroup /app
+RUN groupadd --system appgroup \
+    && useradd --system --gid appgroup --home-dir /app appuser \
+    && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port 8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

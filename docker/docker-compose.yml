@@ -1,44 +1,95 @@
+name: aiva
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aiva}
+      POSTGRES_USER: ${POSTGRES_USER:-aiva}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aiva-network
+
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    volumes:
-      - redis_data:/data
+      retries: 10
+    networks:
+      - aiva-network
 
-  bot:
+  migrate:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     env_file:
       - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aiva}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aiva}
+    command: ["alembic", "upgrade", "head"]
     depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aiva-network
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aiva}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aiva}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:
       - aiva-network
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      NGINX_ENVSUBST_FILTER: "^DOMAIN$"
     volumes:
-      - ../nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ../nginx/conf.d:/etc/nginx/conf.d
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/templates:/etc/nginx/templates:ro
       - ../certbot/conf:/etc/letsencrypt
       - ../certbot/www:/var/www/certbot
     depends_on:
-      - bot
+      bot:
+        condition: service_healthy
     networks:
       - aiva-network
 
   certbot:
-    image: certbot/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    image: certbot/certbot:v2.11.0
+    restart: unless-stopped
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done;'"
     volumes:
       - ../certbot/conf:/etc/letsencrypt
       - ../certbot/www:/var/www/certbot
@@ -48,4 +99,5 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
   redis_data:
